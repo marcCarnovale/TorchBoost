@@ -142,7 +142,7 @@ The training logs below highlight characteristics of **deep double descent** and
 
 ---
 
-```plaintext
+```
 Epoch 1/50, Loss: 31.3433, Val Loss: 33.7022, Reg Loss: 1131.9139
 Epoch 2/50, Loss: 31.4156, Val Loss: 33.5344, Reg Loss: 517.2280
 Epoch 3/50, Loss: 31.1985, Val Loss: 33.6515, Reg Loss: 225.7029
@@ -170,15 +170,15 @@ Epoch 24/50, Loss: 4.6580, Val Loss: 3.9487, Reg Loss: 39.7916
 Epoch 25/50, Loss: 5.0214, Val Loss: 5.3262, Reg Loss: 29.2221
 Epoch 26/50, Loss: 4.5154, Val Loss: 3.1111, Reg Loss: 35.9907
 Epoch 27/50, Loss: 3.8136, Val Loss: 2.8106, Reg Loss: 32.9817
-**Epoch 28/50, Loss: 3.1440, Val Loss: 2.7574, Reg Loss: 27.8697**
-**Epoch 29/50, Loss: 4.0443, Val Loss: 5.0673, Reg Loss: 26.7645**
+Epoch 28/50, Loss: 3.1440, Val Loss: 2.7574, Reg Loss: 27.8697
+Epoch 29/50, Loss: 4.0443, Val Loss: 5.0673, Reg Loss: 26.7645
 Epoch 30/50, Loss: 3.3682, Val Loss: 8.3288, Reg Loss: 31.8566
 Epoch 31/50, Loss: 2.8219, Val Loss: 9.0571, Reg Loss: 28.4102
 Epoch 32/50, Loss: 2.9918, Val Loss: 8.5857, Reg Loss: 23.5178
 Epoch 33/50, Loss: 2.9534, Val Loss: 8.4809, Reg Loss: 24.4203
 Epoch 34/50, Loss: 2.6855, Val Loss: 8.2976, Reg Loss: 23.1677
-**Epoch 35/50, Loss: 2.6912, Val Loss: 7.3977, Reg Loss: 22.7469**
-**Epoch 36/50, Loss: 3.5889, Val Loss: 1.8081, Reg Loss: 20.3004**
+Epoch 35/50, Loss: 2.6912, Val Loss: 7.3977, Reg Loss: 22.7469
+Epoch 36/50, Loss: 3.5889, Val Loss: 1.8081, Reg Loss: 20.3004
 Epoch 37/50, Loss: 2.1422, Val Loss: 1.5238, Reg Loss: 30.1116
 Epoch 38/50, Loss: 1.9478, Val Loss: 1.3942, Reg Loss: 23.8594
 Epoch 39/50, Loss: 1.8450, Val Loss: 1.3041, Reg Loss: 19.5260
@@ -193,6 +193,7 @@ Epoch 47/50, Loss: 0.7336, Val Loss: 0.3732, Reg Loss: 18.9200
 Epoch 48/50, Loss: 0.6680, Val Loss: 0.2480, Reg Loss: 18.1010
 Epoch 49/50, Loss: 0.5452, Val Loss: 0.5336, Reg Loss: 18.8293
 Epoch 50/50, Loss: 0.7399, Val Loss: 0.2130, Reg Loss: 17.5326
+```
 ![image](https://github.com/user-attachments/assets/0616621b-a52f-48eb-b28f-0a7cb0ea26de)
 
 
