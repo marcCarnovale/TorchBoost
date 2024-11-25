@@ -1,3 +1,5 @@
+# torchboost.py
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -115,7 +117,7 @@ class AttentionNetwork(nn.Module):
         weights = F.softmax(scores, dim=1)  # Shape: [batch_size, num_trees]
         return weights
 
-class PyBoostModel(nn.Module):
+class TorchBoostModel(nn.Module):
     def __init__(
         self,
         num_trees,
@@ -130,9 +132,10 @@ class PyBoostModel(nn.Module):
         sample_dropout_rate=0.0,
         temperature_penalty=0.1,
         shrinkage_rate=0.3,
-        lambda_reg=1.0
+        lambda_reg=1.0,
+        use_hessian=False  # Experimental flag
     ):
-        super(PyBoostModel, self).__init__()
+        super(TorchBoostModel, self).__init__()
         self.num_trees = num_trees
         self.task_type = task_type
         self.num_classes = num_classes if task_type == 'multiclass_classification' else 1
@@ -141,6 +144,7 @@ class PyBoostModel(nn.Module):
         self.sample_dropout_rate = sample_dropout_rate  # Sample-level dropout rate
         self.temperature_penalty = temperature_penalty  # Penalty coefficient for high temperatures
         self.shrinkage_rate = shrinkage_rate  # Shrinkage parameter
+        self.use_hessian = use_hessian  # Experimental feature flag
 
         self.trees = nn.ModuleList([
             SoftTree(
@@ -264,7 +268,7 @@ class PyBoostModel(nn.Module):
         importance = importance / torch.sum(importance)
         return importance.cpu().numpy()
 
-def train_pyboost(
+def train_torchboost(
     model,
     X_train,
     y_train,
@@ -279,7 +283,8 @@ def train_pyboost(
     scheduler_type='ReduceLROnPlateau',
     patience=10,
     early_stopping=True,
-    device='cpu'
+    device='cpu',
+    use_hessian=False  # Experimental flag
 ):
     # Choose optimizer
     if optimizer_type == 'adamw':
@@ -321,6 +326,7 @@ def train_pyboost(
 
     best_val_loss = float('inf')
     patience_counter = 0
+    best_model_state = None
 
     for epoch in range(epochs):
         model.train()
@@ -341,9 +347,32 @@ def train_pyboost(
                 preds = model(X_train)
                 if model.task_type == 'multiclass_classification':
                     y_one_hot = F.one_hot(y_train.long(), num_classes=model.num_classes).float()
-                    model.current_residual = y_one_hot.clone() - preds
+                    gradients = y_one_hot - preds
+                    hessians = torch.ones_like(preds)  # Assuming constant Hessian for CrossEntropy
+                    if use_hessian:
+                        # Experimental: Hessian-based residual update
+                        model.current_residual = gradients / (hessians + 1e-8)
+                    else:
+                        # Traditional residual update
+                        model.current_residual = gradients
+                elif model.task_type == 'regression':
+                    gradients = y_train.clone().unsqueeze(-1) - preds
+                    hessians = torch.ones_like(preds)  # For MSE, Hessian is constant
+                    if use_hessian:
+                        # Experimental: Hessian-based residual update
+                        model.current_residual = gradients / (hessians + 1e-8)
+                    else:
+                        # Traditional residual update
+                        model.current_residual = gradients
                 else:
-                    model.current_residual = y_train.clone().unsqueeze(-1) - preds
+                    gradients = y_train.clone().unsqueeze(-1) - preds
+                    hessians = torch.ones_like(preds)
+                    if use_hessian:
+                        # Experimental: Hessian-based residual update
+                        model.current_residual = gradients / (hessians + 1e-8)
+                    else:
+                        # Traditional residual update
+                        model.current_residual = gradients
 
         outputs = model(X_train)
 
@@ -391,18 +420,18 @@ def train_pyboost(
             if val_loss.item() < best_val_loss:
                 best_val_loss = val_loss.item()
                 patience_counter = 0
-                # Optionally save the model state
+                # Save the best model state
                 best_model_state = model.state_dict()
             else:
                 patience_counter += 1
                 if patience_counter >= patience:
                     print("Early stopping triggered.")
-                    if 'best_model_state' in locals():
+                    if best_model_state is not None:
                         model.load_state_dict(best_model_state)
                     break
 
     # Load the best model state if early stopping was triggered
-    if early_stopping and 'best_model_state' in locals():
+    if early_stopping and best_model_state is not None:
         model.load_state_dict(best_model_state)
 
 # Example Usage
@@ -416,7 +445,7 @@ if __name__ == "__main__":
     y_val = torch.randint(0, num_classes, (100,))
 
     # Model configuration
-    model = PyBoostModel(
+    model = TorchBoostModel(
         num_trees=10,
         input_dim=input_dim,
         tree_depth=3,
@@ -429,11 +458,12 @@ if __name__ == "__main__":
         sample_dropout_rate=0.1,
         temperature_penalty=0.1,
         shrinkage_rate=0.3,  # Shrinkage parameter
-        lambda_reg=1.0       # L2 regularization term on leaf values
+        lambda_reg=1.0,       # L2 regularization term on leaf values
+        use_hessian=True      # Activate experimental Hessian-based updates
     )
 
     # Train the model
-    train_pyboost(
+    train_torchboost(
         model,
         X_train,
         y_train,
@@ -447,7 +477,8 @@ if __name__ == "__main__":
         scheduler_type='ReduceLROnPlateau',
         patience=10,
         early_stopping=True,
-        device='cuda' if torch.cuda.is_available() else 'cpu'
+        device='cuda' if torch.cuda.is_available() else 'cpu',
+        use_hessian=True  # Activate experimental Hessian-based updates during training
     )
 
     # Compute feature importance
