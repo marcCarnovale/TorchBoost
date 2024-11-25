@@ -58,14 +58,13 @@ class SoftTree(nn.Module):
 
         # Routing through the tree
         for depth_level in range(self.depth):
-            node_indices = torch.arange(2 ** depth_level - 1, 2 ** (depth_level + 1) - 1)
+            node_indices = torch.arange(2 ** depth_level - 1, 2 ** (depth_level + 1) - 1, device=device)
             weights = self.weights[node_indices]
             biases = self.biases[node_indices]
 
             # Compute decisions at current depth
             logits = x @ weights.t() + biases
             decisions = torch.sigmoid(logits / self.temperature)
-            # No need to unsqueeze(-1) since dimensions match
 
             # Adjust decisions for missing values
             missing_any = missing_mask.any(dim=1, keepdim=True).expand(-1, decisions.size(1))
@@ -125,21 +124,32 @@ class TorchBoostModel(nn.Module):
         num_classes=1,
         init_temp=2.0,
         hardening_rate=0.01,
-        dropout_rate=0.2,  # Soft feature dropout rate
-        temperature_penalty=0.1,
-        shrinkage_rate=0.3,
-        lambda_reg=1.0,
-        use_hessian=False  # Experimental flag
+        dropout_rate=0.2,           # Soft feature dropout rate
+        temperature_penalty=0.1,    # Penalty coefficient for high temperatures
+        shrinkage_rate=0.3,         # Shrinkage parameter
+        lambda_reg=1.0,             # L2 regularization for leaf values
+        use_hessian=False,          # Experimental flag
+        pruning_reg_weight=0.1,     # Tunable weight for pruning regularization
+        leaf_reg_weight=0.1,        # Tunable weight for leaf regularization
+        temp_reg_weight=0.1,        # Tunable weight for temperature regularization
+        lasso_reg_weight=0.1        # Tunable weight for lasso regularization
     ):
         super(TorchBoostModel, self).__init__()
         self.num_trees = num_trees
         self.task_type = task_type
         self.num_classes = num_classes if task_type == 'multiclass_classification' else 1
         self.hardening_rate = hardening_rate  # Controls how quickly splits harden
-        self.dropout_rate = dropout_rate  # Soft feature dropout rate
+        self.dropout_rate = dropout_rate      # Soft feature dropout rate
         self.temperature_penalty = temperature_penalty  # Penalty coefficient for high temperatures
         self.shrinkage_rate = shrinkage_rate  # Shrinkage parameter
-        self.use_hessian = use_hessian  # Experimental feature flag
+        self.lambda_reg = lambda_reg          # L2 regularization for leaf values
+        self.use_hessian = use_hessian        # Experimental feature flag
+
+        # Regularization weights
+        self.pruning_reg_weight = pruning_reg_weight
+        self.leaf_reg_weight = leaf_reg_weight
+        self.temp_reg_weight = temp_reg_weight
+        self.lasso_reg_weight = lasso_reg_weight
 
         self.trees = nn.ModuleList([
             SoftTree(
@@ -147,7 +157,7 @@ class TorchBoostModel(nn.Module):
                 tree_depth,
                 output_dim=self.num_classes,
                 init_temp=init_temp,
-                dropout_rate=dropout_rate,  # Use soft feature dropout rate
+                dropout_rate=dropout_rate,    # Use soft feature dropout rate
                 lambda_reg=lambda_reg
             ) for _ in range(num_trees)
         ])
@@ -195,24 +205,24 @@ class TorchBoostModel(nn.Module):
         reg_term = 0.0
         for tree in self.trees:
             reg_term += tree.pruning_regularization()
-        return reg_term
+        return self.pruning_reg_weight * reg_term  # Apply pruning regularization weight
 
     def leaf_regularization(self):
         reg_term = 0.0
         for tree in self.trees:
             reg_term += tree.leaf_regularization()
-        return reg_term
+        return self.leaf_reg_weight * reg_term  # Apply leaf regularization weight
 
     def temperature_regularization(self):
         temp_reg = 0.0
         for tree in self.trees:
             # Penalize high temperatures to encourage hardening
             temp_reg += tree.temperature ** 2
-        return self.temperature_penalty * temp_reg
+        return self.temp_reg_weight * temp_reg  # Apply temperature regularization weight
 
     def lasso_regularization(self):
         # L1 regularization on residual weights to encourage sparsity
-        return torch.sum(torch.abs(self.residual_weights))
+        return self.lasso_reg_weight * torch.sum(torch.abs(self.residual_weights))
 
     def regularization(self):
         return (
@@ -317,6 +327,7 @@ def train_torchboost(
         reg_loss = reg_lambda * model.regularization()
         total_loss = loss + reg_loss
 
+        # Backward pass and optimization
         total_loss.backward()
         # Gradient clipping
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -339,6 +350,7 @@ def train_torchboost(
         if scheduler is not None:
             scheduler.step(val_loss)
 
+        # Logging
         print(
             f"Epoch {epoch + 1}/{epochs}, "
             f"Loss: {loss.item():.4f}, "
