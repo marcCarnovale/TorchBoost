@@ -124,26 +124,48 @@ class TorchBoostModel(nn.Module):
         num_classes=1,
         init_temp=2.0,
         hardening_rate=0.01,
-        dropout_rate=0.2,           # Soft feature dropout rate
-        temperature_penalty=0.1,    # Penalty coefficient for high temperatures
-        shrinkage_rate=0.3,         # Shrinkage parameter
-        lambda_reg=1.0,             # L2 regularization for leaf values
-        use_hessian=False,          # Experimental flag
-        pruning_reg_weight=0.1,     # Tunable weight for pruning regularization
-        leaf_reg_weight=0.1,        # Tunable weight for leaf regularization
-        temp_reg_weight=0.1,        # Tunable weight for temperature regularization
-        lasso_reg_weight=0.1        # Tunable weight for lasso regularization
+        dropout_rate=0.2,
+        temperature_penalty=0.1,
+        shrinkage_rate=0.3,
+        lambda_reg=1.0,
+        lasso_reg_weight=0.1,
+        pruning_reg_weight=0.1,
+        temp_reg_weight=0.1,
+        leaf_reg_weight=0.1,  # NEW: weight for leaf regularization
+        diversity_reg_weight=0.1,
+        use_hessian=False
     ):
         super(TorchBoostModel, self).__init__()
         self.num_trees = num_trees
         self.task_type = task_type
         self.num_classes = num_classes if task_type == 'multiclass_classification' else 1
-        self.hardening_rate = hardening_rate  # Controls how quickly splits harden
-        self.dropout_rate = dropout_rate      # Soft feature dropout rate
-        self.temperature_penalty = temperature_penalty  # Penalty coefficient for high temperatures
-        self.shrinkage_rate = shrinkage_rate  # Shrinkage parameter
-        self.lambda_reg = lambda_reg          # L2 regularization for leaf values
-        self.use_hessian = use_hessian        # Experimental feature flag
+        self.hardening_rate = hardening_rate
+        self.dropout_rate = dropout_rate
+        self.temperature_penalty = temperature_penalty
+        self.shrinkage_rate = shrinkage_rate
+        self.lambda_reg = lambda_reg
+        self.lasso_reg_weight = lasso_reg_weight
+        self.pruning_reg_weight = pruning_reg_weight
+        self.temp_reg_weight = temp_reg_weight
+        self.leaf_reg_weight = leaf_reg_weight  # Store leaf reg weight
+        self.diversity_reg_weight = diversity_reg_weight
+        self.use_hessian = use_hessian
+
+        self.trees = nn.ModuleList([
+            SoftTree(
+                input_dim,
+                tree_depth,
+                output_dim=self.num_classes,
+                init_temp=init_temp,
+                dropout_rate=dropout_rate,
+                lambda_reg=lambda_reg
+            ) for _ in range(num_trees)
+        ])
+
+
+        self.attention_network = AttentionNetwork(input_dim, num_trees)
+        self.residual_weights = nn.Parameter(torch.sigmoid(torch.randn(num_trees)))
+
 
         # Regularization weights
         self.pruning_reg_weight = pruning_reg_weight
@@ -224,13 +246,39 @@ class TorchBoostModel(nn.Module):
         # L1 regularization on residual weights to encourage sparsity
         return self.lasso_reg_weight * torch.sum(torch.abs(self.residual_weights))
 
-    def regularization(self):
-        return (
-            self.pruning_regularization()
-            + self.temperature_regularization()
-            + self.lasso_regularization()
-            + self.leaf_regularization()
+    
+    def diversity_regularization(self, tree_outputs):
+        """
+        Compute the diversity regularization term.
+        Penalizes high correlation between tree outputs.
+        """
+        # Compute pairwise correlations
+        tree_outputs = torch.stack(tree_outputs, dim=0)  # Shape: [num_trees, batch_size, output_dim]
+        num_trees = tree_outputs.size(0)
+
+        correlations = 0.0
+        for i in range(num_trees):
+            for j in range(i + 1, num_trees):
+                corr = torch.mean((tree_outputs[i] - tree_outputs[i].mean()) * 
+                                  (tree_outputs[j] - tree_outputs[j].mean())) / (
+                    tree_outputs[i].std() * tree_outputs[j].std() + 1e-8
+                )
+                correlations += corr ** 2  # Squared correlation penalty
+
+        return self.diversity_reg_weight * correlations
+
+    def regularization(self, tree_outputs=None):
+        reg_loss = (
+            self.pruning_reg_weight * self.pruning_regularization() +
+            self.temp_reg_weight * self.temperature_regularization() +
+            self.lasso_reg_weight * self.lasso_regularization() +
+            self.leaf_reg_weight * self.leaf_regularization()  # Use the weight for leaf reg
         )
+        if tree_outputs is not None and self.diversity_reg_weight > 0:
+            reg_loss += self.diversity_regularization(tree_outputs)
+        return reg_loss
+
+
 
     def harden_splits(self):
         # Gradually decrease the temperature to harden splits
@@ -309,22 +357,25 @@ def train_torchboost(
     best_val_loss = float('inf')
     patience_counter = 0
     best_model_state = None
-
+    
     for epoch in range(epochs):
         model.train()
         optimizer.zero_grad()
 
         # Forward pass
+        tree_outputs = []
         outputs = model(X_train)
+        for tree in model.trees:
+            tree_outputs.append(tree(X_train))
 
-        # Compute loss
+        # Compute loss based on task type
         if model.task_type == 'multiclass_classification':
             loss = criterion(outputs, y_train.long())
         else:
             loss = criterion(outputs.squeeze(), y_train)
 
-        # Regularization
-        reg_loss = reg_lambda * model.regularization()
+        # Compute regularization with diversity term
+        reg_loss = reg_lambda * model.regularization(tree_outputs)
         total_loss = loss + reg_loss
 
         # Backward pass and optimization
@@ -332,6 +383,7 @@ def train_torchboost(
         # Gradient clipping
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
+
 
         # Harden the splits after parameter update
         model.harden_splits()
