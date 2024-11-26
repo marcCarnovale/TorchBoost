@@ -3,6 +3,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import math
 
 # Custom weight initialization function
 def initialize_weights(model):
@@ -133,6 +134,8 @@ class TorchBoostModel(nn.Module):
         temp_reg_weight=0.1,
         leaf_reg_weight=0.1,  # NEW: weight for leaf regularization
         diversity_reg_weight=0.1,
+        hardening_adjustment_factor=0.1,   # NEW: backoff adjustment factor
+        hardening_backoff_decay_rate=0.05, # NEW: backoff decay rate
         use_hessian=False
     ):
         super(TorchBoostModel, self).__init__()
@@ -147,9 +150,12 @@ class TorchBoostModel(nn.Module):
         self.lasso_reg_weight = lasso_reg_weight
         self.pruning_reg_weight = pruning_reg_weight
         self.temp_reg_weight = temp_reg_weight
-        self.leaf_reg_weight = leaf_reg_weight  # Store leaf reg weight
+        self.leaf_reg_weight = leaf_reg_weight
         self.diversity_reg_weight = diversity_reg_weight
+        self.hardening_adjustment_factor = hardening_adjustment_factor
+        self.hardening_backoff_decay_rate = hardening_backoff_decay_rate
         self.use_hessian = use_hessian
+        self.init_temp = init_temp  # Store initial temperature
 
         self.trees = nn.ModuleList([
             SoftTree(
@@ -162,33 +168,14 @@ class TorchBoostModel(nn.Module):
             ) for _ in range(num_trees)
         ])
 
-
-        self.attention_network = AttentionNetwork(input_dim, num_trees)
-        self.residual_weights = nn.Parameter(torch.sigmoid(torch.randn(num_trees)))
-
-
-        # Regularization weights
-        self.pruning_reg_weight = pruning_reg_weight
-        self.leaf_reg_weight = leaf_reg_weight
-        self.temp_reg_weight = temp_reg_weight
-        self.lasso_reg_weight = lasso_reg_weight
-
-        self.trees = nn.ModuleList([
-            SoftTree(
-                input_dim,
-                tree_depth,
-                output_dim=self.num_classes,
-                init_temp=init_temp,
-                dropout_rate=dropout_rate,    # Use soft feature dropout rate
-                lambda_reg=lambda_reg
-            ) for _ in range(num_trees)
-        ])
-
         # Attention mechanism for dynamic tree weighting
         self.attention_network = AttentionNetwork(input_dim, num_trees)
 
         # Learnable residual scaling factors between 0 and 1
         self.residual_weights = nn.Parameter(torch.sigmoid(torch.randn(num_trees)))
+
+        # Initialize backoff charge
+        self.backoff_charge = 0.0
 
     def forward(self, x):
         batch_size = x.size(0)
@@ -240,53 +227,118 @@ class TorchBoostModel(nn.Module):
         for tree in self.trees:
             # Penalize high temperatures to encourage hardening
             temp_reg += tree.temperature ** 2
-        return self.temp_reg_weight * temp_reg  # Apply temperature regularization weight
+        return self.temperature_penalty * temp_reg  # Apply temperature regularization weight
 
     def lasso_regularization(self):
         # L1 regularization on residual weights to encourage sparsity
         return self.lasso_reg_weight * torch.sum(torch.abs(self.residual_weights))
 
-    
     def diversity_regularization(self, tree_outputs):
         """
         Compute the diversity regularization term.
         Penalizes high correlation between tree outputs.
         """
-        # Compute pairwise correlations
-        tree_outputs = torch.stack(tree_outputs, dim=0)  # Shape: [num_trees, batch_size, output_dim]
+        # Stack tree outputs: [num_trees, batch_size, output_dim]
+        tree_outputs = torch.stack(tree_outputs, dim=0)
         num_trees = tree_outputs.size(0)
-
         correlations = 0.0
+
+        # Flatten the outputs to [num_trees, batch_size * output_dim]
+        tree_outputs_flat = tree_outputs.view(num_trees, -1)
+
+        # Normalize the outputs
+        tree_outputs_norm = (tree_outputs_flat - tree_outputs_flat.mean(dim=1, keepdim=True)) / (
+            tree_outputs_flat.std(dim=1, keepdim=True) + 1e-8
+        )
+
+        # Compute pairwise correlations
         for i in range(num_trees):
             for j in range(i + 1, num_trees):
-                corr = torch.mean((tree_outputs[i] - tree_outputs[i].mean()) * 
-                                  (tree_outputs[j] - tree_outputs[j].mean())) / (
-                    tree_outputs[i].std() * tree_outputs[j].std() + 1e-8
-                )
+                corr = torch.dot(tree_outputs_norm[i], tree_outputs_norm[j]) / tree_outputs_norm[i].numel()
                 correlations += corr ** 2  # Squared correlation penalty
 
         return self.diversity_reg_weight * correlations
 
     def regularization(self, tree_outputs=None):
         reg_loss = (
-            self.pruning_reg_weight * self.pruning_regularization() +
-            self.temp_reg_weight * self.temperature_regularization() +
-            self.lasso_reg_weight * self.lasso_regularization() +
-            self.leaf_reg_weight * self.leaf_regularization()  # Use the weight for leaf reg
+            self.pruning_regularization() +
+            self.temperature_regularization() +
+            self.lasso_regularization() +
+            self.leaf_regularization()
         )
         if tree_outputs is not None and self.diversity_reg_weight > 0:
             reg_loss += self.diversity_regularization(tree_outputs)
         return reg_loss
 
+    def harden_splits(self, epoch, max_epochs, val_loss=None, prev_val_loss=None, method="cosine"):
+        """
+        Adjusts tree temperature based on the selected method and backoff mechanism.
+        Implements a capacitor-like backoff to modulate hardening based on validation loss trends.
+        """
+        # Adjust backoff charge based on validation loss trend
+        if val_loss is not None and prev_val_loss is not None:
+            if val_loss > prev_val_loss:
+                # Validation loss worsened, accumulate backoff charge
+                self.backoff_charge += self.hardening_adjustment_factor
+            else:
+                # Validation loss improved or stayed the same, dissipate backoff charge
+                self.backoff_charge = max(0.0, self.backoff_charge - self.hardening_backoff_decay_rate)
 
+        # Compute adjustment factor
+        adjustment_factor = 1 / (1 + self.backoff_charge)
 
-    def harden_splits(self):
-        # Gradually decrease the temperature to harden splits
+        # Apply non-linear hardening schedule with adjustment factor
         for tree in self.trees:
             with torch.no_grad():
-                tree.temperature -= self.hardening_rate
-                # Ensure temperature doesn't go below a minimum value
-                tree.temperature.clamp_(min=0.1)
+                if method == "logarithmic":
+                    adjustment = math.log(epoch + 1)
+                    new_temp = max(self.init_temp - adjustment * adjustment_factor, 0.1)
+                elif method == "exponential":
+                    rate = 0.05  # Control the decay rate
+                    new_temp = max(self.init_temp * math.exp(-rate * epoch) * adjustment_factor, 0.1)
+                elif method == "polynomial":
+                    p = 2  # Control the polynomial degree
+                    new_temp = max(
+                        (self.init_temp - 0.1) * (1 - epoch / max_epochs) ** p * adjustment_factor + 0.1, 
+                        0.1
+                    )
+                elif method == "cosine":
+                    # Ensure torch.pi is available; use math.pi otherwise
+                    pi = torch.pi if hasattr(torch, 'pi') else math.pi
+                    cosine_component = math.cos(pi * epoch / max_epochs)
+                    new_temp = 0.1 + 0.5 * (self.init_temp - 0.1) * (1 + cosine_component)
+                    new_temp *= adjustment_factor
+                else:
+                    raise ValueError("Unsupported hardening method")
+
+                # Update temperature
+                tree.temperature.fill_(new_temp)
+
+    def harden_splits_cosine(self, epoch, max_epochs, val_loss=None, prev_val_loss=None):
+        """
+        Convenience method for cosine hardening with backoff.
+        """
+        self.harden_splits(epoch, max_epochs, val_loss, prev_val_loss, method="cosine")
+
+    def harden_splits_logarithmic(self, epoch, max_epochs, val_loss=None, prev_val_loss=None):
+        """
+        Convenience method for logarithmic hardening with backoff.
+        """
+        self.harden_splits(epoch, max_epochs, val_loss, prev_val_loss, method="logarithmic")
+
+    # Add other hardening methods as needed
+
+    def harden_splits_exponential(self, epoch, max_epochs, val_loss=None, prev_val_loss=None):
+        """
+        Convenience method for exponential hardening with backoff.
+        """
+        self.harden_splits(epoch, max_epochs, val_loss, prev_val_loss, method="exponential")
+
+    def harden_splits_polynomial(self, epoch, max_epochs, val_loss=None, prev_val_loss=None):
+        """
+        Convenience method for polynomial hardening with backoff.
+        """
+        self.harden_splits(epoch, max_epochs, val_loss, prev_val_loss, method="polynomial")
 
     def feature_importance(self):
         importance = torch.zeros(self.trees[0].weights.size(1), device=self.trees[0].weights.device)
@@ -297,6 +349,7 @@ class TorchBoostModel(nn.Module):
         # Normalize
         importance = importance / torch.sum(importance)
         return importance.cpu().numpy()
+
 
 def train_torchboost(
     model,
@@ -314,13 +367,14 @@ def train_torchboost(
     patience=10,
     early_stopping=True,
     device='cpu',
-    use_hessian=False  # Experimental flag (kept for compatibility)
+    use_hessian=False,
+    hardening_method="cosine"  # NEW: Select hardening schedule
 ):
     # Choose optimizer
     if optimizer_type == 'adamw':
         optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     else:
-        optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 
     # Choose scheduler
     if scheduler_type == 'ReduceLROnPlateau':
@@ -357,7 +411,8 @@ def train_torchboost(
     best_val_loss = float('inf')
     patience_counter = 0
     best_model_state = None
-    
+    prev_val_loss = None
+
     for epoch in range(epochs):
         model.train()
         optimizer.zero_grad()
@@ -375,8 +430,8 @@ def train_torchboost(
             loss = criterion(outputs.squeeze(), y_train)
 
         # Compute regularization with diversity term
-        reg_loss = reg_lambda * model.regularization(tree_outputs)
-        total_loss = loss + reg_loss
+        reg_loss = model.regularization(tree_outputs)
+        total_loss = loss + reg_lambda * reg_loss
 
         # Backward pass and optimization
         total_loss.backward()
@@ -384,19 +439,50 @@ def train_torchboost(
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
 
-
-        # Harden the splits after parameter update
-        model.harden_splits()
-
-        # Validation
+        # Compute validation loss
         model.eval()
         with torch.no_grad():
             val_outputs = model(X_val)
-
             if model.task_type == 'multiclass_classification':
                 val_loss = criterion(val_outputs, y_val.long())
             else:
                 val_loss = criterion(val_outputs.squeeze(), y_val)
+            val_loss_value = val_loss.item()
+
+        # Adjust splits using non-linear hardening and backoff mechanism
+        if hardening_method == "cosine":
+            model.harden_splits_cosine(
+                epoch=epoch, 
+                max_epochs=epochs, 
+                val_loss=val_loss_value, 
+                prev_val_loss=prev_val_loss
+            )
+        elif hardening_method == "logarithmic":
+            model.harden_splits_logarithmic(
+                epoch=epoch, 
+                max_epochs=epochs, 
+                val_loss=val_loss_value, 
+                prev_val_loss=prev_val_loss
+            )
+        elif hardening_method == "exponential":
+            model.harden_splits_exponential(
+                epoch=epoch, 
+                max_epochs=epochs, 
+                val_loss=val_loss_value, 
+                prev_val_loss=prev_val_loss
+            )
+        elif hardening_method == "polynomial":
+            model.harden_splits_polynomial(
+                epoch=epoch, 
+                max_epochs=epochs, 
+                val_loss=val_loss_value, 
+                prev_val_loss=prev_val_loss
+            )
+        else:
+            raise ValueError("Unsupported hardening method")
+
+        # Update previous validation loss
+        prev_val_loss = val_loss_value
 
         # Learning rate scheduling
         if scheduler is not None:
@@ -406,14 +492,15 @@ def train_torchboost(
         print(
             f"Epoch {epoch + 1}/{epochs}, "
             f"Loss: {loss.item():.4f}, "
-            f"Val Loss: {val_loss.item():.4f}, "
-            f"Reg Loss: {reg_loss.item():.4f}"
+            f"Val Loss: {val_loss_value:.4f}, "
+            f"Reg Loss: {reg_loss.item():.4f}, "
+            f"Backoff Charge: {model.backoff_charge:.4f}"
         )
 
         # Early stopping
         if early_stopping:
-            if val_loss.item() < best_val_loss:
-                best_val_loss = val_loss.item()
+            if val_loss_value < best_val_loss:
+                best_val_loss = val_loss_value
                 patience_counter = 0
                 # Save the best model state
                 best_model_state = model.state_dict()
