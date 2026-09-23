@@ -1,0 +1,26 @@
+name: Adaptive research review
+on:
+  push:
+    branches: [codex/adaptive-forest-study]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-artifact:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Package tracked source and portable lint tool
+        run: |
+          mkdir -p review-artifact
+          git archive --format=tar HEAD -o review-artifact/source.tar
+          git rev-parse HEAD > review-artifact/commit.txt
+          python -m pip download --only-binary=:all: --no-deps 'ruff>=0.6' -d review-artifact
+      - uses: actions/upload-artifact@v4
+        with:
+          name: adaptive-review-source
+          path: review-artifact/
+          retention-days: 7
