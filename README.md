@@ -1,89 +1,114 @@
 # TorchBoost
 
-An experimental PyTorch implementation of jointly trained differentiable soft decision-tree ensembles.
+**Differentiable Newton boosting, with a research program in adaptive structure and plasticity.**
 
-## Important terminology
+TorchBoost is being rebuilt from an AI-assisted 2024 overnight prototype into a reproducible
+research project. The aim is an ensemble that learns where to specialize, grow, preserve,
+reconsider and remove structure. The aim is ambitious; the claims below are limited to what
+is implemented and tested.
 
-Despite the historical repository name, the current implementation is **not classical gradient boosting**: its trees and attention network are optimized jointly with backpropagation rather than added sequentially to fit residuals. The name is retained for repository continuity while the algorithm and evidence are clarified.
+## Two deliberately separate APIs
 
-The project is research code. It is not a drop-in replacement for XGBoost, LightGBM, or scikit-learn estimators, and it has not established competitive accuracy, speed, calibration, or interpretability.
+| API | What it does today |
+|---|---|
+| `StagewiseBinaryClassifier` | Adds differentiable binary soft trees sequentially using real logistic gradients/Hessians, coupled soft-leaf Newton solves, shrinkage and exact-loss backtracking. |
+| `TorchBoostModel` | Preserved legacy jointly optimized soft-tree/attention ensemble. It is not classical stagewise gradient boosting. |
 
-## Implemented behavior
+The new binary baseline includes weighted samples, training-only missing-value preprocessing,
+minibatching, deterministic seeds, sklearn-style inference, checkpoint round-trips, hard-tree
+JSON export, and independent split metrics. An optional capacitor controller injects charge
+on controller-validation regression, discharges electrical energy into corrective heat, and
+cools independently. Its temperatures affect routing softness, not the optimizer learning rate.
 
-- differentiable oblique soft-tree routing;
-- jointly trained ensembles with input-dependent tree weights;
-- regression, binary classification, multiclass classification, and multitarget outputs;
-- optional tree/feature dropout and several experimental regularizers;
-- scheduled temperature hardening;
-- early stopping and learning-rate scheduling; and
-- a weight-magnitude feature-importance proxy.
+**Not implemented yet:** dynamic sparse growth/deletion, specialized multiclass attention heads,
+plastic anchor yielding/breakage, local inductive momentum and learned online policies. They are
+first-class requirements in the [research RFC](docs/research-program.md) and
+[machine-readable feature ledger](docs/feature-ledger.json), not advertised features.
 
-Classification `forward` calls return logits. Use `predict_proba` for probabilities.
+## Install and run
 
-Rows containing any missing feature currently receive neutral `0.5` routing at every node. This is a conservative experimental behavior, not learned per-feature missing-value handling.
-
-## Install
-
-Python 3.10 or newer is required.
+Python 3.10+; a supported PyTorch installation is required.
 
 ```bash
 git clone https://github.com/marcCarnovale/TorchBoost.git
 cd TorchBoost
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install -e .
+python -m pip install -e '.[dev,benchmark]'
+python examples/stagewise_binary.py
+pytest -q
+python -m benchmarks.run_binary --seeds 0 1 2
 ```
-
-## Minimal example
-
-```bash
-python examples/minimal.py
-```
-
-The basic API is:
 
 ```python
-import torch
-from torchboost import TorchBoostModel
+from torchboost import StagewiseBinaryClassifier
 
-model = TorchBoostModel(
-    num_trees=8,
-    input_dim=10,
-    tree_depth=3,
-    task_type="multiclass_classification",
-    num_classes=5,
-    dropout_rate=0.1,
+model = StagewiseBinaryClassifier(
+    n_estimators=40,
+    max_depth=3,
+    epochs_per_stage=20,
+    init="random",        # "cart" is an explicitly disclosed hybrid warm start
+    random_state=42,
 )
-
-logits = model(torch.randn(32, 10))
-probabilities = model.predict_proba(torch.randn(32, 10))
+model.fit(X_train, y_train, eval_set=(X_selection, y_selection))
+probabilities = model.predict_proba(X_test)  # two columns in model.classes_ order
+model.save("model.pt")
+model.export_json("hard_model.json")
 ```
 
-`train_torchboost` provides a simple full-batch research training loop. For larger data or controlled experiments, write an explicit minibatch loop around the module instead.
+Accepted trees are immutable during later stages. The final model is the best evaluated prefix,
+including the intercept-only candidate. A hard export matches explicit hard inference; it is
+not promised to match soft predictions. The benchmark reports that discrepancy.
 
-## Verification
+Enable the experimental controller only with a separate control split:
 
-```bash
-python -m pip install -e '.[dev]'
-ruff check .
-pytest -q
-python examples/minimal.py
+```python
+model = StagewiseBinaryClassifier(controller={"cooling_law": "linear"})
+model.fit(X_train, y_train,
+          control_set=(X_controller, y_controller),
+          eval_set=(X_selection, y_selection))
 ```
 
-The tests cover routing-probability invariants, output contracts, multitarget shapes, invalid configuration, and a tree-dropout backward-pass edge case.
+Do not feed the final test set to either adaptation or selection. The minimal controller affects
+only the candidate tree and uses uniform node resistances. It is not the complete proposed
+forest-wide electrical network.
 
-## Known limitations
+## Evidence, not a leaderboard claim
 
-- This is a jointly trained ensemble, not sequential gradient boosting.
-- Benchmark comparisons against established tree and neural-tabular methods have not yet been added.
-- Several regularizers and hardening schedules remain experimental and need ablation studies.
-- The feature-importance score is a normalized weight-magnitude proxy, not a validated attribution method.
-- Missing values are handled at row level rather than with learned per-split routing.
-- The included trainer is full batch and intended for small experiments.
-- Public API and checkpoint compatibility are not yet stable.
+The [recorded smoke benchmark](docs/benchmark-smoke.md) contains all 30 runs: two small binary
+datasets, three fixed split seeds, four TorchBoost variants and XGBoost. It records AUC, NLL,
+accuracy, balanced accuracy, calibration, runtime, selected stages and soft/hard discrepancy.
+The results are encouraging on these splits, but XGBoost is substantially faster. There is no
+matched tuning budget, broad dataset coverage, or established state-of-the-art claim. Peak
+training memory has not been measured; serialized tensor bytes are not a substitute.
 
-The earlier README described a single training trace as possible grokking/deep double descent. That claim has been removed because the trace did not constitute a controlled, reproducible demonstration.
+The new solver allocates a complete binary tree and a dense leaf covariance matrix. It is a
+small-data reference, not the promised deep sparse engine. CPU tests and comparisons are
+recorded; GPU throughput and distributed operation remain unvalidated.
 
-## License
+## Research direction
 
-MIT; see [`LICENSE`](LICENSE).
+The distinctive hypotheses are **corrective heat allocation**, **evidence-earned plastic
+anchors whose pullback can yield or break**, and **real dynamic growth/pruning**, combined with
+learned output specialization. These mechanisms must remain independently switchable and
+falsifiable. The [RFC](docs/research-program.md) states equations, owners, prior art and acceptance
+gates; the [migration guide](docs/migration.md) explains compatibility and known legacy defects.
+
+Metric collection is independent of plasticity:
+
+    training -> SplitMetricsCollector -> PerformanceTracker
+                                         -> OnlineScheduler [planned]
+                                              -> PlasticityModule [planned]
+
+A shared learner must preserve node-specific histories and outcomes. Frozen means preserved,
+not removed. Thawing means reconsidering, not resetting. Temperature, learning rate, momentum,
+plastic consolidation and structural existence are different controls.
+
+## Legacy compatibility and provenance
+
+`from torchboost import SoftTree, TorchBoostModel, train_torchboost` still resolves to the
+characterized cleanup implementation, preserved byte-for-byte in `torchboost/legacy.py`.
+Known issues remain there deliberately as a reference, including disconnected pruning and
+snapshot timing. New code does not silently reuse those semantics. Research ideas originated
+in the maintainer's design conversations; generated code is subject to the same tests and
+review standards as any other implementation. See [AGENTS.md](AGENTS.md).
+
+MIT license; see [LICENSE](LICENSE).

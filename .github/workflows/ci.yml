@@ -1,19 +1,27 @@
 name: CI
-
 on:
   push:
   pull_request:
-
+permissions:
+  contents: read
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    env:
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
           cache: pip
-      - run: python -m pip install -e '.[dev]'
+      - run: python -m pip install -e '.[dev,benchmark]'
       - run: ruff check .
       - run: pytest -q
       - run: python examples/minimal.py
+      - run: python examples/stagewise_binary.py
+      - run: python -m benchmarks.run_binary --quick --seeds 0 --output /tmp/torchboost-smoke.json

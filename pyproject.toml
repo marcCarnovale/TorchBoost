@@ -4,18 +4,22 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "torchboost-experimental"
-version = "0.1.0"
-description = "Experimental differentiable soft-tree ensembles in PyTorch."
+version = "0.2.0"
+description = "Differentiable Newton boosting and experimental structural learning controls."
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = ["torch>=2.2", "numpy>=1.26"]
+dependencies = ["torch>=2.2", "numpy>=1.26", "scikit-learn>=1.4"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.6"]
+benchmark = ["xgboost>=2.0"]
 
-[tool.setuptools]
-py-modules = ["torchboost"]
+[tool.setuptools.packages.find]
+include = ["torchboost*"]
 
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
