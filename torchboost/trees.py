@@ -1,8 +1,8 @@
 """Binary differentiable routing with one explicit owner of gate temperature."""
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
+from dataclasses import dataclass
 
 import torch
 from torch import Tensor, nn

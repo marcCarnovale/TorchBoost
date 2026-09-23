@@ -327,7 +327,7 @@ class StagewiseBinaryClassifier(ClassifierMixin, BaseEstimator):
         torch.save(payload, path)
 
     @classmethod
-    def load(cls, path: str | Path, device: str = "cpu") -> "StagewiseBinaryClassifier":
+    def load(cls, path: str | Path, device: str = "cpu") -> StagewiseBinaryClassifier:
         payload = torch.load(path, map_location="cpu", weights_only=True)
         if payload.get("schema") != 1:
             raise ValueError("unsupported checkpoint schema")

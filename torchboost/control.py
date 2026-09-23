@@ -53,10 +53,12 @@ class CapacitorController(nn.Module):
         if cooling_law not in ("linear", "radiative"):
             raise ValueError("cooling_law must be linear or radiative")
         self.cooling_law = cooling_law
-        for key, value in dict(capacitance=capacitance, injection_gain=injection_gain,
-                               max_charge=max_charge, ambient=ambient,
-                               cooling_rate=cooling_rate, reference_decay=reference_decay,
-                               regression_tolerance=regression_tolerance).items():
+        for key, value in {
+            "capacitance": capacitance, "injection_gain": injection_gain,
+            "max_charge": max_charge, "ambient": ambient,
+            "cooling_rate": cooling_rate, "reference_decay": reference_decay,
+            "regression_tolerance": regression_tolerance,
+        }.items():
             self.register_buffer(key, torch.tensor(value, dtype=torch.float64))
         self.register_buffer("heat_capacity", torch.full((node_count,), heat_capacity, dtype=torch.float64))
         self.register_buffer("temperature", torch.full((node_count,), initial_temperature, dtype=torch.float64))

@@ -19,7 +19,13 @@ import sklearn
 import torch
 import xgboost
 from sklearn.datasets import load_breast_cancer, make_classification
-from sklearn.metrics import accuracy_score, balanced_accuracy_score, brier_score_loss, log_loss, roc_auc_score
+from sklearn.metrics import (
+    accuracy_score,
+    balanced_accuracy_score,
+    brier_score_loss,
+    log_loss,
+    roc_auc_score,
+)
 from sklearn.model_selection import train_test_split
 from xgboost import XGBClassifier
 
@@ -80,9 +86,11 @@ def run(seeds, quick=False):
             splits.append({"dataset": dataset, "seed": seed, "sha256_data": fingerprint,
                            "roles": {k: {"count": len(v), "sha256_indices": hashlib.sha256(v.astype("<i8").tobytes()).hexdigest()} for k, v in roles.items()}})
             train, control, selection, test = (roles[k] for k in ("train", "control", "selection", "test"))
-            common = dict(n_estimators=6 if quick else 32, max_depth=3,
-                          epochs_per_stage=3 if quick else 12, lr=0.15, optimizer_lr=0.02,
-                          batch_size=512, patience=10, random_state=seed)
+            common = {
+                "n_estimators": 6 if quick else 32, "max_depth": 3,
+                "epochs_per_stage": 3 if quick else 12, "lr": 0.15, "optimizer_lr": 0.02,
+                "batch_size": 512, "patience": 10, "random_state": seed,
+            }
             models = {
                 "torchboost_newton_cart": StagewiseBinaryClassifier(**common),
                 "torchboost_newton_random": StagewiseBinaryClassifier(**{**common, "init": "random"}),
