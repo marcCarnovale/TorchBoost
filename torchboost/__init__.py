@@ -15,7 +15,15 @@ from .trees import BinarySoftTree
 __version__ = "0.2.0"
 
 __all__ = [
-    "StagewiseBinaryClassifier", "BinarySoftTree", "BinaryLogisticObjective",
-    "CapacitorController", "SplitMetricsCollector", "PerformanceTracker",
-    "SoftTree", "TorchBoostModel", "AttentionNetwork", "train_torchboost", "initialize_weights",
+    "AttentionNetwork",
+    "BinaryLogisticObjective",
+    "BinarySoftTree",
+    "CapacitorController",
+    "PerformanceTracker",
+    "SoftTree",
+    "SplitMetricsCollector",
+    "StagewiseBinaryClassifier",
+    "TorchBoostModel",
+    "initialize_weights",
+    "train_torchboost",
 ]
