@@ -1,9 +1,12 @@
 # torchboost.py
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+import copy
 import math
+
+import torch
+import torch.nn.functional as F
+from torch import nn
+
 
 # Custom weight initialization function
 def initialize_weights(model):
@@ -23,7 +26,11 @@ class SoftTree(nn.Module):
         dropout_rate=0.0,  # Soft feature dropout rate
         lambda_reg=1.0
     ):
-        super(SoftTree, self).__init__()
+        super().__init__()
+        if depth < 1:
+            raise ValueError("depth must be at least 1")
+        if not 0 <= dropout_rate < 1:
+            raise ValueError("dropout_rate must be in [0, 1)")
         self.depth = depth
         self.temperature = nn.Parameter(torch.tensor(init_temp))
         self.output_dim = output_dim
@@ -44,7 +51,7 @@ class SoftTree(nn.Module):
         self.dropout = nn.Dropout(p=dropout_rate)
 
     def forward(self, x):
-        batch_size, input_dim = x.size()
+        batch_size, _ = x.size()
         device = x.device
 
         # Apply soft feature dropout
@@ -65,7 +72,8 @@ class SoftTree(nn.Module):
 
             # Compute decisions at current depth
             logits = x @ weights.t() + biases
-            decisions = torch.sigmoid(logits / self.temperature)
+            temperature = self.temperature.clamp_min(1e-4)
+            decisions = torch.sigmoid(logits / temperature)
 
             # Adjust decisions for missing values
             missing_any = missing_mask.any(dim=1, keepdim=True).expand(-1, decisions.size(1))
@@ -76,8 +84,9 @@ class SoftTree(nn.Module):
             )
 
             # Update routing probabilities
-            routing_prob = routing_prob.repeat(1, 2)
-            routing_prob = routing_prob * torch.cat([decisions, 1 - decisions], dim=1)
+            routing_prob = torch.stack(
+                (routing_prob * decisions, routing_prob * (1 - decisions)), dim=-1
+            ).reshape(batch_size, -1)
 
         # Leaf node probabilities
         leaf_probs = routing_prob[:, -2 ** self.depth:]  # Shape: [batch_size, num_leaves]
@@ -100,7 +109,7 @@ class SoftTree(nn.Module):
 
 class AttentionNetwork(nn.Module):
     def __init__(self, input_dim, num_trees):
-        super(AttentionNetwork, self).__init__()
+        super().__init__()
         self.fc = nn.Sequential(
             nn.Linear(input_dim, 128),
             nn.ReLU(),
@@ -138,10 +147,10 @@ class TorchBoostModel(nn.Module):
         hardening_backoff_decay_rate=0.05, # NEW: backoff decay rate
         use_hessian=False
     ):
-        super(TorchBoostModel, self).__init__()
+        super().__init__()
         self.num_trees = num_trees
         self.task_type = task_type
-        self.num_classes = num_classes if task_type == 'multiclass_classification' else 1
+        self.num_classes = num_classes if task_type in ('multiclass_classification', 'multitarget') else 1
         self.hardening_rate = hardening_rate
         self.dropout_rate = dropout_rate
         self.temperature_penalty = temperature_penalty
@@ -188,13 +197,17 @@ class TorchBoostModel(nn.Module):
 
         for i, tree in enumerate(self.trees):
             # Tree-level dropout
-            if self.training and torch.rand(1).item() < self.dropout_rate:
-                continue  # Skip this tree during training
-
             tree_output = tree(x)  # Shape: [batch_size, output_dim]
 
+            # Inverted tree dropout preserves the expected scale and keeps a
+            # differentiable graph even if every sampled mask is zero.
+            keep = torch.ones((), device=x.device, dtype=x.dtype)
+            if self.training and self.dropout_rate > 0:
+                keep = (torch.rand((), device=x.device) >= self.dropout_rate).to(x.dtype)
+                keep = keep / (1 - self.dropout_rate)
+
             # Scale the tree output with shrinkage_rate and residual weight
-            scaled_output = self.shrinkage_rate * self.residual_weights[i] * tree_output
+            scaled_output = self.shrinkage_rate * self.residual_weights[i] * tree_output * keep
 
             # Accumulate the weighted output using attention weights
             tree_weight = attention_weights[:, i].unsqueeze(-1)  # Shape: [batch_size, 1]
@@ -202,13 +215,16 @@ class TorchBoostModel(nn.Module):
 
             prediction += weighted_output
 
-        # For classification tasks, apply appropriate activation
-        if self.task_type == 'binary_classification':
-            prediction = torch.sigmoid(prediction)
-        elif self.task_type == 'multiclass_classification':
-            prediction = F.softmax(prediction, dim=1)
-
         return prediction
+
+    def predict_proba(self, x):
+        """Return probabilities for classification tasks."""
+        logits = self(x)
+        if self.task_type == 'binary_classification':
+            return torch.sigmoid(logits)
+        if self.task_type == 'multiclass_classification':
+            return F.softmax(logits, dim=1)
+        raise ValueError("predict_proba is available only for classification tasks")
 
     def pruning_regularization(self):
         reg_term = 0.0
@@ -307,7 +323,7 @@ class TorchBoostModel(nn.Module):
                     pi = torch.pi if hasattr(torch, 'pi') else math.pi
                     cosine_component = math.cos(pi * epoch / max_epochs)
                     new_temp = 0.1 + 0.5 * (self.init_temp - 0.1) * (1 + cosine_component)
-                    new_temp *= adjustment_factor
+                    new_temp = max(new_temp * adjustment_factor, 0.1)
                 else:
                     raise ValueError("Unsupported hardening method")
 
@@ -347,7 +363,7 @@ class TorchBoostModel(nn.Module):
                 # Sum the absolute weights of each feature
                 importance += torch.sum(torch.abs(tree.weights), dim=0)
         # Normalize
-        importance = importance / torch.sum(importance)
+        importance = importance / torch.sum(importance).clamp_min(1e-12)
         return importance.cpu().numpy()
 
 
@@ -390,7 +406,7 @@ def train_torchboost(
         if model.task_type == 'regression':
             criterion = nn.MSELoss()
         elif model.task_type == 'binary_classification':
-            criterion = nn.BCELoss()
+            criterion = nn.BCEWithLogitsLoss()
         elif model.task_type == 'multiclass_classification':
             criterion = nn.CrossEntropyLoss()
         elif model.task_type == 'multitarget':
@@ -413,6 +429,15 @@ def train_torchboost(
     best_model_state = None
     prev_val_loss = None
 
+    def prepare_targets(outputs, targets):
+        if model.task_type == 'multiclass_classification':
+            return targets.long()
+        if outputs.ndim == 2 and outputs.size(-1) == 1 and targets.ndim == 1:
+            targets = targets.unsqueeze(-1)
+        if outputs.ndim == 1 and targets.ndim == 2 and targets.size(-1) == 1:
+            targets = targets.squeeze(-1)
+        return targets.to(dtype=outputs.dtype)
+
     for epoch in range(epochs):
         model.train()
         optimizer.zero_grad()
@@ -425,9 +450,9 @@ def train_torchboost(
 
         # Compute loss based on task type
         if model.task_type == 'multiclass_classification':
-            loss = criterion(outputs, y_train.long())
+            loss = criterion(outputs, prepare_targets(outputs, y_train))
         else:
-            loss = criterion(outputs.squeeze(), y_train)
+            loss = criterion(outputs, prepare_targets(outputs, y_train))
 
         # Compute regularization with diversity term
         reg_loss = model.regularization(tree_outputs)
@@ -444,9 +469,9 @@ def train_torchboost(
         with torch.no_grad():
             val_outputs = model(X_val)
             if model.task_type == 'multiclass_classification':
-                val_loss = criterion(val_outputs, y_val.long())
+                val_loss = criterion(val_outputs, prepare_targets(val_outputs, y_val))
             else:
-                val_loss = criterion(val_outputs.squeeze(), y_val)
+                val_loss = criterion(val_outputs, prepare_targets(val_outputs, y_val))
             val_loss_value = val_loss.item()
 
         # Adjust splits using non-linear hardening and backoff mechanism
@@ -503,7 +528,7 @@ def train_torchboost(
                 best_val_loss = val_loss_value
                 patience_counter = 0
                 # Save the best model state
-                best_model_state = model.state_dict()
+                best_model_state = copy.deepcopy(model.state_dict())
             else:
                 patience_counter += 1
                 if patience_counter >= patience:

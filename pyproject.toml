@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "torchboost-experimental"
+version = "0.1.0"
+description = "Experimental differentiable soft-tree ensembles in PyTorch."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["torch>=2.2", "numpy>=1.26"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[tool.setuptools]
+py-modules = ["torchboost"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
