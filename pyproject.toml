@@ -15,7 +15,7 @@ dev = ["pytest>=8", "ruff>=0.6"]
 benchmark = ["xgboost>=2", "lightgbm>=4", "catboost>=1.2", "matplotlib>=3.7"]
 
 [tool.setuptools.packages.find]
-include = ["torchboost*"]
+include = ["torchboost*", "experiments*"]
 
 # The historical repository's lint gate predates the research overlay. Keep that
 # gate on the production/legacy package while the large adaptive research
