@@ -1,13 +1,11 @@
-name: Overnight research studies
-on:
-  push:
-    branches: [research/unified-progressive-2026-09-24]
+name: Native interpolating forest study
+on: push
 permissions:
   contents: read
 jobs:
-  law-mid-replication:
+  native-interpolation:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     env:
       OMP_NUM_THREADS: "1"
       MKL_NUM_THREADS: "1"
@@ -17,12 +15,10 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Install CPU PyTorch
-        run: python -m pip install 'torch>=2.2' --index-url https://download.pytorch.org/whl/cpu
+      - run: python -m pip install 'torch>=2.2' --index-url https://download.pytorch.org/whl/cpu
       - run: python -m pip install -e '.[dev,benchmark]'
-      - name: Replicate central-force study
-        run: python experiments/scientific_law_discovery.py --seed 47 --nfit 8000 --depth 4 --updates 512 --noise .05 --out law-mid-47.json
+      - run: python experiments/native_interpolating_forest.py --seed 61 --out native-interpolation-61.json
       - uses: actions/upload-artifact@v4
         with:
-          name: law-mid-replication
-          path: law-mid-47.json
+          name: native-interpolation
+          path: native-interpolation-61.json
