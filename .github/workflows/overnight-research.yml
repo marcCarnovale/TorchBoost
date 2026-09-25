@@ -30,6 +30,94 @@ jobs:
         with:
           name: matched-physics
           path: matched-*.json
+
+  deep-power-tree-long:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install CPU PyTorch
+        run: python -m pip install 'torch>=2.2' --index-url https://download.pytorch.org/whl/cpu
+      - run: python -m pip install -e '.[dev,benchmark]'
+      - run: python experiments/deep_physics_power_tree.py --kind none --seed 71 --updates 2048 --out deep-71-none.json
+      - run: python experiments/deep_physics_power_tree.py --kind full --seed 71 --updates 2048 --out deep-71-full.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deep-power-tree-long
+          path: deep-*.json
+
+  direct-feedback-development:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install CPU PyTorch
+        run: python -m pip install 'torch>=2.2' --index-url https://download.pytorch.org/whl/cpu
+      - run: python -m pip install -e '.[dev,benchmark]'
+      - run: python experiments/direct_feedback_control.py --seed 11 --updates 16 | tee direct-feedback-development.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: direct-feedback-development
+          path: direct-feedback-development.json
+
+  overcomplete-mechanism:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install CPU PyTorch
+        run: python -m pip install 'torch>=2.2' --index-url https://download.pytorch.org/whl/cpu
+      - run: python -m pip install -e '.[dev,benchmark]'
+      - run: python experiments/overcomplete_forest_mechanism.py --seed 77 --variant none --out overcomplete-77-none.json
+      - run: python experiments/overcomplete_forest_mechanism.py --seed 77 --variant l2 --out overcomplete-77-l2.json
+      - run: python experiments/overcomplete_forest_mechanism.py --seed 77 --variant hierarchy --out overcomplete-77-hierarchy.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: overcomplete-mechanism
+          path: overcomplete-*.json
+
+  law-mid:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install CPU PyTorch
+        run: python -m pip install 'torch>=2.2' --index-url https://download.pytorch.org/whl/cpu
+      - run: python -m pip install -e '.[dev,benchmark]'
+      - run: python experiments/scientific_law_discovery.py --seed 31 --nfit 8000 --depth 4 --updates 512 --noise .05 --out law-mid.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: law-mid
+          path: law-mid.json
+
   law-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 20
