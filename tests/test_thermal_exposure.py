@@ -3,7 +3,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from experiments.thermal_exposure import exposure_distance, exposure_matched, thermal_exposure
+from experiments.thermal_exposure import (
+    exposure_distance,
+    exposure_matched,
+    thermal_exposure,
+)
 
 
 def history():

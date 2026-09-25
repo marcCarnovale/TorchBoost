@@ -3,8 +3,12 @@ from dataclasses import asdict
 import numpy as np
 import pytest
 
-from experiments.deep_controller_protocol import candidate_config, controller_type, partition
-import torchboost.adaptive.training as training
+from experiments.deep_controller_protocol import (
+    candidate_config,
+    controller_type,
+    partition,
+)
+from torchboost.adaptive import training
 
 
 def test_all_five_splits_are_disjoint_and_new_seeds_change_data():
@@ -32,8 +36,7 @@ def test_direct_and_capacitor_share_thermal_and_plastic_settings():
 
 def test_controller_patch_restores_even_on_failure():
     original = training.PhysicalController
-    with pytest.raises(RuntimeError):
-        with controller_type(True):
-            assert training.PhysicalController is not original
-            raise RuntimeError("test interruption")
+    with pytest.raises(RuntimeError), controller_type(True):
+        assert training.PhysicalController is not original
+        raise RuntimeError("test interruption")
     assert training.PhysicalController is original
