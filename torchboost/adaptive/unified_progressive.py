@@ -20,7 +20,7 @@ from .forest import AdaptiveForest,ForestTrace
 from .training import JointTrainer,model_snapshot,restore_model
 from .data import Preprocessor,DataSplit,sample_weights
 from .objectives import Objective
-from .newton_builder import BuilderConfig,build_tree,derivatives
+from .newton_builder import BuilderConfig,build_tree,build_linear_model_tree,build_grouped_oblique_model_tree,derivatives
 from .progressive_regularizers import Regularizers,penalties
 
 
@@ -30,7 +30,7 @@ def default_native():
         observation_every=2,control_sample_size=96,
         structure=StructureConfig(max_depth=4,max_nodes=511,dynamic=False,structural_gate=False,
             complexity=0.,gate_bimodality=0.,allocation_regularization=0.),
-        physics=PhysicsConfig(initial_temperature=1.,ambient_temperature=.7))
+        physics=PhysicsConfig(initial_temperature=1.,ambient_temperature=1.))
 
 
 @dataclass
@@ -53,6 +53,13 @@ class UnifiedConfig:
     warm_value_updates: int = 2
     gate_release: str = 'oblique'   # hard / threshold / oblique
     readout: str = 'residual'
+    linear_values: bool = False
+    linear_l2: float = 10.
+    proposal_mode: str = 'hist_newton'  # hist_newton / linear_model_tree / grouped_oblique
+    feature_groups: tuple[tuple[int,...], ...] = ()
+    grouped_gate_l2: float = 1.
+    grouped_gate_starts: int = 4
+    grouped_gate_steps: int = 40
     head_mode: str = 'none'         # none / shared / specialized bounded modulation
     anchor_min_passes: float = .25
     anchor_min_updates: int = 2
@@ -62,6 +69,7 @@ class UnifiedConfig:
     refit_every: int = 0
     refit_damping: float = .02
     max_cache_bytes: int = 64*1024*1024
+    checkpoint_every: int = 0  # optimizer updates; 0 keeps stage-boundary selection only
     random_state: int = 0
     regularizers: Regularizers = field(default_factory=Regularizers)
     regularizer_schedule: ScheduleConfig = field(default_factory=lambda:ScheduleConfig(low=1.,high=1.))
@@ -75,7 +83,7 @@ class UnifiedConfig:
         self.native.__post_init__();self.regularizers.__post_init__();self.regularizer_schedule.__post_init__()
         for k in ('n_trees','updates_per_stage','bins','min_samples_leaf','active_window','reopening_stages','max_cache_bytes'):
             if not isinstance(getattr(self,k),int) or isinstance(getattr(self,k),bool) or getattr(self,k)<1:raise ValueError(f'invalid {k}')
-        for k in ('depth','warm_value_updates','anchor_min_updates','refit_every'):
+        for k in ('depth','warm_value_updates','anchor_min_updates','refit_every','checkpoint_every'):
             if not isinstance(getattr(self,k),int) or getattr(self,k)<0:raise ValueError(f'invalid {k}')
         for k in ('min_child_weight','newton_l2','split_cost','anchor_min_passes','refit_damping'):
             if not math.isfinite(getattr(self,k)) or getattr(self,k)<0:raise ValueError(f'invalid {k}')
@@ -85,9 +93,17 @@ class UnifiedConfig:
             if not math.isfinite(getattr(self,k)) or getattr(self,k)<=0:raise ValueError(f'invalid {k}')
         if not math.isfinite(self.age_decay) or not 0<=self.age_decay<=1:raise ValueError('invalid age_decay')
         if self.depth>self.native.structure.max_depth:raise ValueError('proposal depth exceeds native budget')
+        self.native.node_linear_values=self.linear_values
         if self.readout not in ('leaf','residual') or self.gate_release not in ('hard','threshold','oblique'):raise ValueError('invalid tree mode')
         if self.readout=='leaf' and self.native.structure.dynamic:raise ValueError('native dynamic growth requires residual readout')
         if self.native.aggregation!='additive' or self.native.residual_weights:raise ValueError('explicit additive scores and stage rates required')
+        if self.proposal_mode not in ('hist_newton','linear_model_tree','grouped_oblique'):raise ValueError('invalid proposal_mode')
+        if self.proposal_mode in ('linear_model_tree','grouped_oblique') and not self.linear_values:raise ValueError('linear_model_tree requires linear_values')
+        if self.proposal_mode=='grouped_oblique' and not self.feature_groups:
+            raise ValueError('grouped_oblique requires feature_groups')
+        for group in self.feature_groups:
+            if not group or min(group)<0 or len(set(group))!=len(group): raise ValueError('invalid feature group')
+        if self.grouped_gate_l2<0 or self.grouped_gate_starts<1 or self.grouped_gate_steps<1: raise ValueError('invalid grouped gate settings')
         if self.head_mode not in ('none','shared','specialized'):raise ValueError('invalid head_mode')
         if self.head_mode!='none' and (self.native.interaction_groups or self.age_decay==0):raise ValueError('learned heads incompatible with strict frozen contributions or hard score-interaction groups')
         if self.refit_every and self.head_mode!='none':raise ValueError('conditional refit requires fixed heads')
@@ -291,7 +307,12 @@ class UnifiedTrainer(JointTrainer):
             'selection_loss':score,'train_loss':self.loss(train),'nodes':len(self.model.node_map()),
             'parameters':sum(p.numel() for p in self.model.parameters()),'optimizer_updates':self.optimizer_steps,
             'examples_seen':self.examples_seen,'model_bytes':self.model.tensor_bytes(),'optimizer_bytes':self.optimizer.tensor_bytes(),
-            'cache_hits':self.cache_hits,'penalties':self.term_totals.copy(),'admitted_anchors':len(self.admitted)})
+            'cache_hits':self.cache_hits,'penalties':self.term_totals.copy(),'admitted_anchors':len(self.admitted),
+            'event_counts':{name:sum(e.get('event')==name for e in self.events) for name in set(e.get('event') for e in self.events)},
+            'mean_temperature':float(np.mean([st['temperature'] for st in self.physical.nodes.values()])) if self.physical.nodes else float(self.config.physics.ambient_temperature),
+            'mean_charge':float(np.mean([abs(st.get('charge',0.)) for st in self.physical.nodes.values()])) if self.physical.nodes else 0.,
+            'cumulative_injection':float(sum(h.get('injected_charge',0.) for h in self.physical.history)),
+            'max_temperature_seen':float(max([max((v.get('temperature',self.config.physics.ambient_temperature) for v in h.get('nodes',{}).values()),default=self.config.physics.ambient_temperature) for h in self.physical.history],default=self.config.physics.ambient_temperature))})
         return score
 
     def run(self,train,control,selection,stop_stages=None):
@@ -313,8 +334,12 @@ class UnifiedTrainer(JointTrainer):
             mask=torch.zeros(self.model.input_dim);mask[subset]=1.
             self.sampling_history.append({'stage':tree_id,'rows':pool.tolist(),'features':subset.tolist()})
             ds=DataSplit(train.x[pool],train.y[pool],train.weight[pool]);scores=self.logits(ds)
-            tree,record=build_tree(ds,scores,self.objective.task,tree_id,self.config,
-                BuilderConfig(pc.depth,pc.bins,pc.min_samples_leaf,pc.min_child_weight,pc.newton_l2,pc.split_cost,pc.max_delta,pc.cart_strength,pc.readout),mask,self.generator)
+            bcfg=BuilderConfig(pc.depth,pc.bins,pc.min_samples_leaf,pc.min_child_weight,pc.newton_l2,pc.split_cost,pc.max_delta,pc.cart_strength,pc.readout,pc.linear_values,pc.linear_l2)
+            if pc.proposal_mode=='grouped_oblique' and tree_id==0:
+                tree,record=build_grouped_oblique_model_tree(ds,scores,self.objective.task,tree_id,self.config,bcfg,mask,self.generator,pc.feature_groups,pc.grouped_gate_l2,pc.grouped_gate_starts,pc.grouped_gate_steps)
+            else:
+                builder=build_linear_model_tree if pc.proposal_mode=='linear_model_tree' and tree_id==0 else build_tree
+                tree,record=builder(ds,scores,self.objective.task,tree_id,self.config,bcfg,mask,self.generator)
             tree.force_hard=pc.warm_value_updates>0 or pc.gate_release=='hard'
             with torch.no_grad():
                 previous=self.logits(train);direction=torch.cat([tree(b,hard=tree.force_hard)[0] for b in train.x.split(2048)])
@@ -335,6 +360,8 @@ class UnifiedTrainer(JointTrainer):
                 self._update(train,pool,values,tree_id,u)
                 if self.config.collect_metrics and self.tick%self.config.observation_every==0:self._observe_and_control(ctl,self.tick)
                 self.tick+=1;self.epoch=self.tick
+                if pc.checkpoint_every and self.tick%pc.checkpoint_every==0:
+                    self.evaluate(train,selection,'within_stage')
             if pc.refit_every and self.stage%pc.refit_every==0:self.refit(train,tree_id)
             self.evaluate(train,selection,'refined')
         self.model.eval()
@@ -416,8 +443,11 @@ class _Estimator(BaseEstimator):
     def _select(self):
         self.model_=restore_model(self.trainer_.best_snapshot,self.n_features_in_,self.objective_.output_dim,self.trainer_.config);self.model_.eval()
         self.n_estimators_=len(self.model_.trees);self.best_score_=self.trainer_.best_score;self.history_=self.trainer_.history
-    def continue_fit(self,X,y,sample_weight=None,*,control_set,eval_set,stop_stages=None):
+    def continue_fit(self,X,y,sample_weight=None,*,control_set,eval_set,stop_stages=None,allow_domain_shift=False):
         check_is_fitted(self,'trainer_')
+        if allow_domain_shift:
+            self.trainer_.fingerprints={}
+            self.trainer_.control_indices=None
         try:self.trainer_.run(self.preprocessor_.split(X,y,sample_weight),self.preprocessor_.split(*control_set),self.preprocessor_.split(*eval_set),stop_stages)
         finally:self.trainer_.close()
         self._select();return self

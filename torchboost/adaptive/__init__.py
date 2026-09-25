@@ -48,3 +48,8 @@ __all__ += ["LegacyFeatureMap", "StableFeatureMap", "StableMappedTree",
             "HorizonPolicy", "extend_positive_tail"]
 from .progressive import ProgressiveConfig, ProgressiveTreeClassifier, ProgressiveTreeRegressor
 from .progressive import RollingBoostConfig, RollingBoostClassifier
+
+from .unified_progressive import UnifiedConfig, UnifiedProgressiveClassifier, UnifiedProgressiveRegressor
+from .oof_forest import OOFForest, OOFForestConfig
+__all__ += ["UnifiedConfig", "UnifiedProgressiveClassifier", "UnifiedProgressiveRegressor",
+            "OOFForest", "OOFForestConfig"]

@@ -139,7 +139,7 @@ class PhysicsConfig:
     resistance_min: float = .1
     resistance_max: float = 1000.
     initial_temperature: float = 1.
-    ambient_temperature: float = .2
+    ambient_temperature: float = 1.
     max_temperature: float = 5.
     heat_capacity: float = 1.
     cooling: float = .2
@@ -150,13 +150,21 @@ class PhysicsConfig:
     spark_probability: float = 0.
     spark_energy: float = .02
     transfer_fraction: float = 0.
+    # Optional system-level calibration. When enabled, component values are
+    # derived from whole-controller time constants and rescaled as topology
+    # changes while preserving stored thermal/inductive energy.
+    topology_normalization: bool = False
+    discharge_time: float = 5.
+    inductive_time: float = 2.
+    cooling_time: float = 64.
+    total_heat_capacity: float = .1
 
     def __post_init__(self) -> None:
         choice("physics mode", self.mode, ("none", "cooling", "capacitor", "rlc"))
         choice("allocation", self.allocation, ("uniform", "protective", "uncertainty", "gradient"))
         choice("granularity", self.granularity, ("global", "tree", "node"))
         choice("cooling_law", self.cooling_law, ("linear", "radiative"))
-        for name in ("capacitance", "inductance", "dt", "resistance", "resistance_min", "resistance_max", "initial_temperature", "ambient_temperature", "max_temperature", "heat_capacity", "thaw_temperature", "max_charge"):
+        for name in ("capacitance", "inductance", "dt", "resistance", "resistance_min", "resistance_max", "initial_temperature", "ambient_temperature", "max_temperature", "heat_capacity", "thaw_temperature", "max_charge", "discharge_time", "inductive_time", "cooling_time", "total_heat_capacity"):
             positive(name, getattr(self, name))
         for name in ("charge_gain", "max_injection", "cooling", "heterogeneity", "lr_coupling", "spark_energy"):
             positive(name, getattr(self, name), zero=True)
@@ -296,11 +304,16 @@ class ForestConfig:
     reversal_decay: float = .2
     feature_dropout: float = 0.
     tree_dropout: float = 0.
+    node_linear_values: bool = False
     diversity: float = 0.
     feature_penalties: tuple[float, ...] = ()
     monotonicity: tuple[tuple[int, int, int], ...] = ()  # (output, feature, sign)
     monotonicity_penalty: float = 0.
     interaction_groups: tuple[tuple[int, ...], ...] = ()
+    # Semantic feature groups constrain oblique routing and affine node models.
+    # Unlike interaction_groups (tree-level masks), these may overlap and are
+    # chosen per node by proposal/optimization logic.
+    feature_groups: tuple[tuple[int, ...], ...] = ()
     record_diagnostics: bool = False
     compact_history: bool = False
     collect_metrics: bool = True
@@ -353,6 +366,9 @@ class ForestConfig:
             raise ValueError("online plasticity experiments require a plasticity mode")
         if self.optimizer == "circuit_momentum" and self.physics.mode != "rlc":
             raise ValueError("circuit_momentum requires the RLC controller")
+        for group in self.feature_groups:
+            if not group or min(group) < 0 or len(set(group)) != len(group):
+                raise ValueError("feature groups must contain unique nonnegative feature indices")
         if self.interaction_groups and self.aggregation != "additive":
             raise ValueError("hard interaction groups require additive aggregation; attention renormalization would reintroduce interactions")
         for value in self.feature_penalties:

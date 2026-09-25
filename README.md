@@ -1,114 +1,129 @@
 # TorchBoost
 
-**Differentiable Newton boosting, with a research program in adaptive structure and plasticity.**
+**Adaptive differentiable model trees, selected forests, and progressive ensembles.**
 
-TorchBoost is being rebuilt from an AI-assisted 2024 overnight prototype into a reproducible
-research project. The aim is an ensemble that learns where to specialize, grow, preserve,
-reconsider and remove structure. The aim is ambitious; the claims below are limited to what
-is implemented and tested.
+TorchBoost is a research system for tabular learning that combines a strong statistical backbone
+with explicit mechanisms for memory, plasticity, structural change, and physically motivated
+control. The project is experimental: mechanisms are kept independently switchable and claims are
+limited to recorded tests and experiments.
 
-## Two deliberately separate APIs
+## Current model families
 
-| API | What it does today |
-|---|---|
-| `StagewiseBinaryClassifier` | Adds differentiable binary soft trees sequentially using real logistic gradients/Hessians, coupled soft-leaf Newton solves, shrinkage and exact-loss backtracking. |
-| `TorchBoostModel` | Preserved legacy jointly optimized soft-tree/attention ensemble. It is not classical stagewise gradient boosting. |
+### Single power tree — current default research path
 
-The new binary baseline includes weighted samples, training-only missing-value preprocessing,
-minibatching, deterministic seeds, sklearn-style inference, checkpoint round-trips, hard-tree
-JSON export, and independent split metrics. An optional capacitor controller injects charge
-on controller-validation regression, discharges electrical energy into corrective heat, and
-cools independently. Its temperatures affect routing softness, not the optimizer learning rate.
+A node can contribute an affine residual
 
-**Not implemented yet:** dynamic sparse growth/deletion, specialized multiclass attention heads,
-plastic anchor yielding/breakage, local inductive momentum and learned online policies. They are
-first-class requirements in the [research RFC](docs/research-program.md) and
-[machine-readable feature ledger](docs/feature-ledger.json), not advertised features.
+\[
+r_v(x)=b_v+x^\top\beta_v,
+\]
 
-## Install and run
+so a path accumulates coarse-to-fine predictive corrections rather than only constant leaf values.
+Hard Newton/model-tree proposals can be released into differentiable routing and trained with
+hierarchical regularization. This substantially increases the capacity of one tree before ensembling.
 
-Python 3.10+; a supported PyTorch installation is required.
+### OOF-selected forest
+
+`OOFForest` trains candidate members on inner bags, scores them using out-of-fold predictions,
+retains only the strongest members, refits survivors on independent outer bags, and supports
+uniform, inverse-loss, or softmax OOF-performance weighting. Member selection is therefore based on
+held-out behavior rather than unconditional averaging.
+
+### Progressive / boosted power trees
+
+`UnifiedProgressiveClassifier` and `UnifiedProgressiveRegressor` add corrective trees sequentially.
+Older trees can slow with age instead of being permanently frozen. The native trainer can combine
+this with plastic anchors, dynamic structure, online local control, and capacitor/RLC thermal control.
+
+## Axis-aligned by default; oblique routing is explicit
+
+For ordinary tabular data, arbitrary rotations across unrelated columns are usually a poor prior.
+The default proposal is axis-aligned. Experimental `proposal_mode="grouped_oblique"` restricts an
+oblique gate to one declared semantic feature group; singleton groups recover ordinary axis splits,
+and groups may overlap. This is intended for domain-informed or strongly evidenced feature groups,
+not indiscriminate rotation of all columns.
+
+## Adaptive mechanisms
+
+The native engine implements:
+
+- evidence-earned anchors and elastic pullback;
+- yielding, permanent reference motion, work hardening, damage/breakage, recovery, and optional locks;
+- capacitor and RLC corrective-energy controllers with independent cooling;
+- thermal softening and thaw/reopening;
+- local momentum variants, including circuit-state coupling;
+- real growth/pruning with optimizer/controller/plastic-state migration;
+- split-specific observations and an online local policy with delayed outcomes;
+- hierarchical, feature, structural, routing, and output regularization.
+
+Physics is **not** assumed to improve an underpowered predictor. Current development first makes the
+base tree/forest statistically strong, then evaluates control mechanisms on long nonstationary
+curricula where retention, selective reopening, and recovery can actually matter.
+
+## Physics defaults and topology scaling
+
+The ordinary routing temperature is 1.0. Physics-enabled experiments now use a neutral resting
+temperature of 1.0 so enabling the controller does not silently sharpen every gate.
+
+`PhysicsConfig(topology_normalization=True)` derives per-node resistance, inductance, heat capacity,
+and cooling from whole-controller time constants. When topology changes, stored thermal and
+inductive energy are preserved while component values are recalibrated. This prevents the same
+controller configuration from changing meaning merely because a tree grows.
+
+## Current evidence
+
+Recorded development results include:
+
+- one affine-residual power-tree configuration beating a much larger CatBoost ensemble on a controlled
+  context-dependent affine problem; this is a development result, not a broad leaderboard claim;
+- grouped-oblique routing helping when a related feature block is deliberately rotated, while hurting
+  when the natural axis-aligned representation is already correct;
+- recurring-domain A→B→A experiments where adaptive memory/control can improve return performance,
+  while A→B→C can punish excessive retention;
+- current topology-normalized recurring A→B→A→B→A screens where capacitor control improves over the
+  matched no-control model on two development seeds. These are mechanism-development results, not
+  evidence of general superiority.
+
+The project target is stronger than XGBoost: comparisons should include CatBoost and other strong
+tabular references. Physics/control improvements are expected to be incremental; the statistical
+backbone must earn competitiveness on its own.
+
+## Install
 
 ```bash
 git clone https://github.com/marcCarnovale/TorchBoost.git
 cd TorchBoost
 python -m pip install -e '.[dev,benchmark]'
-python examples/stagewise_binary.py
 pytest -q
-python -m benchmarks.run_binary --seeds 0 1 2
 ```
 
-```python
-from torchboost import StagewiseBinaryClassifier
+## Minimal unified example
 
-model = StagewiseBinaryClassifier(
-    n_estimators=40,
-    max_depth=3,
-    epochs_per_stage=20,
-    init="random",        # "cart" is an explicitly disclosed hybrid warm start
-    random_state=42,
+```python
+from torchboost.adaptive import UnifiedConfig, UnifiedProgressiveClassifier
+
+cfg = UnifiedConfig(
+    n_trees=1,                 # single power tree
+    linear_values=True,
+    proposal_mode="hist_newton",
 )
-model.fit(X_train, y_train, eval_set=(X_selection, y_selection))
-probabilities = model.predict_proba(X_test)  # two columns in model.classes_ order
-model.save("model.pt")
-model.export_json("hard_model.json")
+
+model = UnifiedProgressiveClassifier(cfg)
+model.fit(
+    X_train, y_train,
+    control_set=(X_control, y_control),
+    eval_set=(X_selection, y_selection),
+)
+p = model.predict_proba(X_test)
 ```
 
-Accepted trees are immutable during later stages. The final model is the best evaluated prefix,
-including the intercept-only candidate. A hard export matches explicit hard inference; it is
-not promised to match soft predictions. The benchmark reports that discrepancy.
+Final test data must never be supplied as controller or selection data.
 
-Enable the experimental controller only with a separate control split:
+## Research discipline
 
-```python
-model = StagewiseBinaryClassifier(controller={"cooling_law": "linear"})
-model.fit(X_train, y_train,
-          control_set=(X_controller, y_controller),
-          eval_set=(X_selection, y_selection))
-```
+A configured mechanism, an activated mechanism, and a beneficial mechanism are three different
+claims. Experiments record intervention timing, charge/temperature, anchor admission, structural
+events, and selected checkpoints so late or inactive mechanisms are not credited for earlier model
+quality. Negative controls are retained.
 
-Do not feed the final test set to either adaptation or selection. The minimal controller affects
-only the candidate tree and uses uniform node resistances. It is not the complete proposed
-forest-wide electrical network.
-
-## Evidence, not a leaderboard claim
-
-The [recorded smoke benchmark](docs/benchmark-smoke.md) contains all 30 runs: two small binary
-datasets, three fixed split seeds, four TorchBoost variants and XGBoost. It records AUC, NLL,
-accuracy, balanced accuracy, calibration, runtime, selected stages and soft/hard discrepancy.
-The results are encouraging on these splits, but XGBoost is substantially faster. There is no
-matched tuning budget, broad dataset coverage, or established state-of-the-art claim. Peak
-training memory has not been measured; serialized tensor bytes are not a substitute.
-
-The new solver allocates a complete binary tree and a dense leaf covariance matrix. It is a
-small-data reference, not the promised deep sparse engine. CPU tests and comparisons are
-recorded; GPU throughput and distributed operation remain unvalidated.
-
-## Research direction
-
-The distinctive hypotheses are **corrective heat allocation**, **evidence-earned plastic
-anchors whose pullback can yield or break**, and **real dynamic growth/pruning**, combined with
-learned output specialization. These mechanisms must remain independently switchable and
-falsifiable. The [RFC](docs/research-program.md) states equations, owners, prior art and acceptance
-gates; the [migration guide](docs/migration.md) explains compatibility and known legacy defects.
-
-Metric collection is independent of plasticity:
-
-    training -> SplitMetricsCollector -> PerformanceTracker
-                                         -> OnlineScheduler [planned]
-                                              -> PlasticityModule [planned]
-
-A shared learner must preserve node-specific histories and outcomes. Frozen means preserved,
-not removed. Thawing means reconsidering, not resetting. Temperature, learning rate, momentum,
-plastic consolidation and structural existence are different controls.
-
-## Legacy compatibility and provenance
-
-`from torchboost import SoftTree, TorchBoostModel, train_torchboost` still resolves to the
-characterized cleanup implementation, preserved byte-for-byte in `torchboost/legacy.py`.
-Known issues remain there deliberately as a reference, including disconnected pruning and
-snapshot timing. New code does not silently reuse those semantics. Research ideas originated
-in the maintainer's design conversations; generated code is subject to the same tests and
-review standards as any other implementation. See [AGENTS.md](AGENTS.md).
-
-MIT license; see [LICENSE](LICENSE).
+The draft research branch remains under active development. See `docs/research-program.md` and the
+current experiment scripts for protocols and known limitations.

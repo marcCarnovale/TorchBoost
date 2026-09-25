@@ -32,27 +32,56 @@ class PhysicalController:
         self.retired_energy = 0.
         self.birth_energy = 0.
 
+    def _normalized_components(self, count: int) -> tuple[float, float, float, float]:
+        cfg = self.config
+        resistance = count * cfg.discharge_time / cfg.capacitance
+        inductance = resistance * cfg.inductive_time
+        capacity = cfg.total_heat_capacity / count
+        cooling = capacity / cfg.cooling_time
+        return resistance, inductance, capacity, cooling
+
+    def _recalibrate_topology(self) -> None:
+        """Preserve stored energy while changing normalized component values."""
+        cfg = self.config
+        if not cfg.topology_normalization or not self.nodes:
+            return
+        resistance, inductance, capacity, cooling = self._normalized_components(len(self.nodes))
+        for state in self.nodes.values():
+            old_capacity = float(state["capacity"])
+            old_inductance = float(state.get("inductance", cfg.inductance))
+            thermal = old_capacity * (float(state["temperature"]) - cfg.ambient_temperature)
+            magnetic = .5 * old_inductance * float(state["current"]) ** 2
+            state["capacity"] = capacity
+            state["cooling"] = cooling
+            state["resistance"] = resistance
+            state["inductance"] = inductance
+            state["temperature"] = cfg.ambient_temperature + thermal / capacity
+            sign = -1. if float(state["current"]) < 0 else 1.
+            state["current"] = sign * math.sqrt(max(0., 2 * magnetic / inductance))
+
     def synchronize(self, identities: dict[str, int]) -> None:
         cfg = self.config
         for key in set(self.nodes) - set(identities):
             state = self.nodes.pop(key)
+            inductance = float(state.get("inductance", cfg.inductance))
             self.retired_energy += (state["capacity"] * (state["temperature"] - cfg.ambient_temperature)
-                                    + .5 * cfg.inductance * state["current"] ** 2)
+                                    + .5 * inductance * state["current"] ** 2)
+        count=max(1,len(identities))
+        nr,nl,nc,nk=self._normalized_components(count) if cfg.topology_normalization else (cfg.resistance,cfg.inductance,cfg.heat_capacity,cfg.cooling)
         for key, tree in identities.items():
             if key not in self.nodes:
-                # Independent positive random capacities/cooling, fixed for the
-                # node lifetime and reproducible in checkpoints.
-                capacity = cfg.heat_capacity * math.exp(float(self.rng.normal(0., cfg.heterogeneity)))
-                cooling = cfg.cooling * math.exp(float(self.rng.normal(0., cfg.heterogeneity)))
+                capacity = nc * math.exp(float(self.rng.normal(0., cfg.heterogeneity)))
+                cooling = nk * math.exp(float(self.rng.normal(0., cfg.heterogeneity)))
                 self.nodes[key] = {"tree": tree, "capacity": capacity, "cooling": cooling,
                                    "temperature": cfg.initial_temperature, "current": 0.,
-                                   "resistance": cfg.resistance, "heat": 0., "power": 0.,
+                                   "resistance": nr, "inductance": nl, "heat": 0., "power": 0.,
                                    "cooling_energy": 0., "inductive_energy": 0.}
                 self.birth_energy += capacity * (cfg.initial_temperature - cfg.ambient_temperature)
+        self._recalibrate_topology()
 
     def electrical_energy(self) -> float:
         return self.charge ** 2 / (2. * self.config.capacitance) + sum(
-            .5 * self.config.inductance * s["current"] ** 2 for s in self.nodes.values())
+            .5 * float(s.get("inductance", self.config.inductance)) * s["current"] ** 2 for s in self.nodes.values())
 
     def thermal_energy(self) -> float:
         return sum(s["capacity"] * (s["temperature"] - self.config.ambient_temperature) for s in self.nodes.values())
@@ -77,7 +106,7 @@ class PhysicalController:
                         log_multiplier = -min(4., observation.entropy + max(0., -observation.utility / scale))
                     elif cfg.allocation == "gradient":
                         log_multiplier = -min(4., observation.gradient_norm + observation.structural_gradient)
-                resistance = cfg.resistance * math.exp(log_multiplier)
+                resistance = float(self.nodes[key].get("resistance", cfg.resistance)) * math.exp(log_multiplier)
             result.append(np.clip(resistance, cfg.resistance_min, cfg.resistance_max))
         result = np.asarray(result, dtype=np.float64)
         trees = np.asarray([self.nodes[k]["tree"] for k in keys])
@@ -152,9 +181,10 @@ class PhysicalController:
             self.charge = charge1
         elif cfg.mode == "rlc":
             h = cfg.dt
-            denominator = 1 + h * resistance / (2 * cfg.inductance)
-            a = (1 - h * resistance / (2 * cfg.inductance)) / denominator
-            b = h / (2 * cfg.inductance) / denominator
+            inductance = np.asarray([self.nodes[k].get("inductance", cfg.inductance) for k in keys], dtype=np.float64)
+            denominator = 1 + h * resistance / (2 * inductance)
+            a = (1 - h * resistance / (2 * inductance)) / denominator
+            b = h / (2 * inductance) / denominator
             z = h / (2 * cfg.capacitance)
             voltage1 = (voltage0 * (1 - z * b.sum()) - z * ((1 + a) * current0).sum()) / (1 + z * b.sum())
             current1 = a * current0 + b * (voltage0 + voltage1)
@@ -203,7 +233,7 @@ class PhysicalController:
             state.update(temperature=float(temperature1[index]), current=float(current1[index]),
                          resistance=float(resistance[index]), heat=float(heat[index]), power=float(power[index]),
                          cooling_energy=float(cooled_energy[index]),
-                         inductive_energy=float(.5 * cfg.inductance * current1[index]**2))
+                         inductive_energy=float(.5 * state.get("inductance", cfg.inductance) * current1[index]**2))
             node_log[key] = {**state, "instantaneous_current": float(instantaneous_current[index]),
                              "spark_energy": float(sparks[index])}
         after_electrical, after_thermal = self.electrical_energy(), self.thermal_energy()
