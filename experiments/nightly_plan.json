@@ -1,0 +1,10 @@
+{
+  "priority": [
+    {"name":"deep_power_tree_physics","script":"experiments/deep_physics_power_tree.py","matrix":{"seed":[71,72],"kind":["none","plastic","cap","rlc","full"],"updates":[512,2048]},"purpose":"Measure adaptive-control value on the CatBoost-beating deep single tree."},
+    {"name":"physics_decoupling","tests":["topology-normalized electrical/thermal time scales","dimensionless LR-temperature coupling","parameter-count-normalized energy momentum","topology-normalized circuit momentum","conductance-preserving allocation","matched simple thaw controls"]},
+    {"name":"large_tabular","datasets":[{"name":"covertype","openml_id":1596,"instances":581012},{"name":"electricity","openml_id":151,"instances":45312},{"name":"BNG-heart-statlog","openml_id":267,"instances":1000000},{"name":"heloc","openml_id":45026,"instances":10000},{"name":"QSAR-high-dimensional","openml_id":45041,"instances":8885}]},
+    {"name":"scientific_law_discovery","script":"experiments/scientific_law_discovery.py","matrix":{"seed":[31,47,83],"nfit":[2000,8000,32000],"depth":[2,4,6],"updates":[128,512,2048],"noise":[0.0,0.05,0.15]}},
+    {"name":"epicycle_model_selection","purpose":"Compare Fourier/epicycle complexity, Keplerian structure, CatBoost, and TorchBoost on noisy partial arcs and held-out orbital regimes."}
+  ],
+  "rules":["Never tune on audit","Never weaken the CatBoost ratchet","Keep negative results","Oblique routing stays opt-in/group-constrained","Physics must beat matched simpler controls before promotion","Track interpolation, selected/last checkpoints, and late generalization"]
+}
