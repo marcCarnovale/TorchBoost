@@ -22,3 +22,21 @@ def test_topology_normalized_capacitor_retains_recurring_regime_gain():
 
     assert regret_gain >= RATCHET["min_regret_improvement"], (none, cap, regret_gain)
     assert final_gain >= RATCHET["min_final_A_improvement"], (none, cap, final_gain)
+
+
+def test_epicycle_regularization_mechanism_report():
+    """Falsifiable warm-start representation-competition mechanism study."""
+    import math
+
+    from experiments.epicycle_regularization import run as run_epicycle
+
+    result = run(seed=17)
+    for variant in result["variants"]:
+        for phase in ("initial", "final"):
+            metrics = variant[phase]
+            assert math.isfinite(metrics["train_mse"])
+            assert math.isfinite(metrics["holdout_mse"])
+            assert math.isfinite(metrics["ood_mse"])
+            assert math.isfinite(metrics["effective_order"])
+            assert math.isfinite(metrics["alpha"])
+    raise AssertionError("EPICYCLE_REPORT=" + json.dumps(result, sort_keys=True))
