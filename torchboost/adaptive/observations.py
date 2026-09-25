@@ -15,6 +15,7 @@ from torch import Tensor
 from .contracts import Observation, Proposal, TrialOutcome
 from .forest import AdaptiveForest, ForestTrace
 from .objectives import Objective
+from .leaf_evidence import leaf_evidence
 
 
 def parameter_vector(node) -> Tensor:
@@ -60,7 +61,7 @@ class SplitMetricsCollector:
                                               if node.structural is not None and node.structural.grad is not None else 0.)
 
     @torch.no_grad()
-    def collect(self, forest: AdaptiveForest, logits: Tensor, trace: ForestTrace,
+    def collect(self, forest: AdaptiveForest, x: Tensor, logits: Tensor, trace: ForestTrace,
                 target: Tensor, weights: Tensor, objective: Objective, step: int, *,
                 physical_context: dict | None = None, plastic_context: dict | None = None,
                 phase_context: dict | None = None, progress: float = 0.) -> list[Observation]:
@@ -94,6 +95,8 @@ class SplitMetricsCollector:
                     local_entropy = -(p * p.clamp_min(1e-12).log()).sum(1)
                     entropy = float((local_entropy * rw).sum() / rw.sum().clamp_min(1e-12))
                     information = objective.information(p, rw, target)
+            evidence = (leaf_evidence(x, logits, target, weights, raw.reach, objective.task)
+                        if raw is not None and node.is_leaf else None)
             result.append(Observation(key, node.tree_id, node.depth, step, forest.topology_version,
                                       occupancy, entropy, information, utility, refinement_utility,
                                       history["gradient"], history["structural_gradient"], history["motion"],
@@ -108,7 +111,15 @@ class SplitMetricsCollector:
                                       float(plastic_context.get(key, {}).get("reference_path", 0.)),
                                       ("grow", "evaluate", "consolidate", "reopen").index(phase_context.get(node.tree_id, "grow")),
                                       progress, uncertainty,
-                                      0. if history.get("last_utility") is None else utility - history["last_utility"]))
+                                      0. if history.get("last_utility") is None else utility - history["last_utility"],
+                                      0. if evidence is None else evidence.effective_n,
+                                      0. if evidence is None else evidence.residual_variance,
+                                      0. if evidence is None else evidence.reducible_loss,
+                                      0. if evidence is None else evidence.explainable_fraction,
+                                      1. if evidence is None else evidence.noise_fraction,
+                                      0. if evidence is None else evidence.confident_error_mass,
+                                      0. if evidence is None else evidence.exploration_score,
+                                      0. if evidence is None else evidence.budget_score))
             history["motion"] = 0.
             history["last_utility"] = utility
         return result

@@ -36,6 +36,14 @@ class Observation:
     training_progress: float = 0.
     uncertainty: float = 0.
     utility_change: float = 0.
+    effective_n: float = 0.
+    residual_variance: float = 0.
+    reducible_loss: float = 0.
+    explainable_fraction: float = 0.
+    noise_fraction: float = 1.
+    confident_error_mass: float = 0.
+    exploration_score: float = 0.
+    budget_score: float = 0.
 
     def to_dict(self) -> dict:
         return asdict(self)

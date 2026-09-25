@@ -123,6 +123,7 @@ class PhysicalController:
             result.append(np.clip(resistance, cfg.resistance_min, cfg.resistance_max))
         result = np.asarray(result, dtype=np.float64)
         trees = np.asarray([self.nodes[k]["tree"] for k in keys])
+        base_conductance = sum(1. / float(self.nodes[k].get("resistance", cfg.resistance)) for k in keys)
         if cfg.granularity == "global":
             result[:] = float(np.mean(result))
         elif cfg.granularity == "tree":
@@ -140,8 +141,14 @@ class PhysicalController:
             for tree, tree_total in zip(tree_ids, totals):
                 mask = trees == tree
                 # Fixed whole-network conductance budget 1 / base R.
-                conductance[mask] *= (tree_total / total / cfg.resistance) / conductance[mask].sum()
+                conductance[mask] *= (tree_total / total * base_conductance) / conductance[mask].sum()
             result = 1. / conductance
+        if cfg.topology_normalization:
+            conductance = 1. / result
+            total_conductance = float(conductance.sum())
+            if total_conductance > 0 and base_conductance > 0:
+                conductance *= base_conductance / total_conductance
+                result = 1. / conductance
         return result
 
     def _cool(self, temperature: np.ndarray, capacities: np.ndarray, cooling: np.ndarray) -> np.ndarray:

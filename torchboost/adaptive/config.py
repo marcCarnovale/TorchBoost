@@ -108,7 +108,7 @@ class StructureConfig:
             raise ValueError("relaxation_factor must lie strictly between zero and one")
         positive("relaxation_min_gain", self.relaxation_min_gain, zero=True)
         choice("rolling_scope", self.rolling_scope, ("tree", "depth", "subtree"))
-        choice("growth_policy", self.growth_policy, ("best_first", "level", "random", "preprune", "uncertainty", "information", "hybrid"))
+        choice("growth_policy", self.growth_policy, ("best_first", "level", "random", "preprune", "uncertainty", "information", "hybrid", "evidence"))
         choice("pruning_policy", self.pruning_policy, ("node", "depth", "tree", "hybrid"))
         choice("depth_allocation", self.depth_allocation, ("learned", "exponential", "uniform"))
         for name in ("min_occupancy", "initial_dormant_fraction", "protect_tree_fraction"):

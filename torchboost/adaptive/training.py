@@ -293,7 +293,7 @@ class JointTrainer:
         forward = self.model(x, trace=cfg.collect_metrics)
         prediction, trace = forward if cfg.collect_metrics else (forward, None)
         control_loss = float(self.objective.weighted_loss(prediction, y, w))
-        observations = (self.collector.collect(self.model, prediction, trace, y, w, self.objective, step,
+        observations = (self.collector.collect(self.model, x, prediction, trace, y, w, self.objective, step,
                         physical_context={"charge": self.physical.charge, "nodes": self.physical.nodes},
                         plastic_context=self.plastic.snapshot(), phase_context=self.schedule.phases(step),
                         progress=(step + 1) / cfg.epochs) if cfg.collect_metrics else [])

@@ -185,6 +185,10 @@ class GrowthPruningPolicy:
                         score = observation.occupancy * information
                         if cfg.growth_policy == "hybrid":
                             score += observation.occupancy * observation.gradient_norm * (1 + observation.uncertainty)
+                    elif cfg.growth_policy == "evidence":
+                        # Variance earns an experiment; demonstrated reducible
+                        # control loss earns the stronger tie-breaking budget.
+                        score = observation.exploration_score + observation.budget_score
                     eligible.append((score, node.node_id))
                 eligible.sort(key=lambda x: (-x[0], x[1]))
                 for score, key in eligible[:cfg.grow_per_event]:
