@@ -24,15 +24,16 @@ def test_topology_normalized_capacitor_retains_recurring_regime_gain():
     assert final_gain >= RATCHET["min_final_A_improvement"], (none, cap, final_gain)
 
 
-def test_miniboone_public_benchmark_report():
-    """Run one harder public numerical benchmark without making it a ratchet."""
+
+def test_higgs_public_benchmark_report():
+    """Run a near-million-row numerical benchmark without making it a ratchet."""
     import math
 
     from experiments.openml_benchmark import run as run_openml
 
-    result = run_openml(data_id=44128, seed=41, updates=384)
-    print("MINIBOONE_REPORT=" + json.dumps(result, sort_keys=True))
-    assert result["rows"] > 50000
-    assert result["features"] >= 40
+    result = run_openml(data_id=44129, seed=43, updates=256)
+    assert result["rows"] > 900000
+    assert result["features"] >= 20
     assert math.isfinite(result["torchboost_audit"])
     assert math.isfinite(result["catboost_audit"])
+    raise AssertionError("HIGGS_REPORT=" + json.dumps(result, sort_keys=True))
