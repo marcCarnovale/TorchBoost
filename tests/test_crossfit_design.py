@@ -6,6 +6,7 @@ from torchboost.adaptive.unified_progressive import (
     UnifiedProgressiveClassifier,
 )
 
+
 def dataset(n=1800,d=8,seed=4):
     r=np.random.default_rng(seed);x=r.normal(size=(n,d)).astype("float32")
     c=x[:,0]>0;z=np.where(c,1.2*x[:,2]-.8*x[:,3],-x[:,2]+.9*x[:,4])
