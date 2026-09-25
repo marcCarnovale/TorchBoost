@@ -1,5 +1,6 @@
 
 import numpy as np
+
 from torchboost.adaptive.unified_progressive import (
     UnifiedConfig,
     UnifiedProgressiveClassifier,
