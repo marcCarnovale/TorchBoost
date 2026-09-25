@@ -16,6 +16,7 @@ class Regularizers:
     child_penalty: float = 0.
     feature_l1: float = 0.
     correction_cost: float = 0.
+    linear_value_l2: float = 0.
 
     def __post_init__(self):
         if self.allocation not in ('fixed','learned','exponential','uniform'):raise ValueError('invalid allocation')
@@ -58,7 +59,13 @@ def penalties(model,weights,trace,cfg):
         if cfg.leaf_l2:out['leaf']=out['leaf']+.5*cfg.leaf_l2*(rate*canonical_leaves(t)).square().mean()
         if cfg.hierarchy:
             budget=allocation(t,cfg)
-            for n in t.nodes.values():out['hierarchy']=out['hierarchy']+.5*cfg.hierarchy*budget[n.node_id]*(rate*n.value).square().mean()
+            for n in t.nodes.values():
+                local=(rate*n.value).square().mean()
+                if n.linear_value is not None: local=local+(rate*n.linear_value).square().mean()
+                out['hierarchy']=out['hierarchy']+.5*cfg.hierarchy*budget[n.node_id]*local
+        if cfg.linear_value_l2:
+            terms=[n.linear_value.square().mean() for n in t.nodes.values() if n.linear_value is not None]
+            if terms: out['leaf']=out['leaf']+.5*cfg.linear_value_l2*torch.stack(terms).mean()
             if cfg.allocation=='learned':out['allocation']=out['allocation']+cfg.allocation_l2*(t.depth_logits.square().mean()+torch.stack([n.allocation_logit.square() for n in t.nodes.values()]).mean())
         if cfg.feature_l1:
             terms=[((n.routing_weight-n.routing_weight.mean(0,keepdim=True))*t.feature_mask/n.temperature).abs().mean() for n in t.nodes.values() if not n.is_leaf]
