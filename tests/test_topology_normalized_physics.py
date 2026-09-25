@@ -68,7 +68,7 @@ def test_optimizer_physics_is_scale_normalized():
             learning_rate=.01,collect_metrics=False,
             structure=StructureConfig(dynamic=False,initial_depth=0,max_depth=0,max_nodes=1),
             physics=PhysicsConfig(mode="cooling",topology_normalization=True,initial_temperature=ambient,
-                ambient_temperature=ambient,thaw_temperature=thaw,lr_coupling=.3))
+                ambient_temperature=ambient,max_temperature=max(5.,2*thaw),thaw_temperature=thaw,lr_coupling=.3))
         forest=AdaptiveForest(2,1,q);opt=DynamicOptimizer(forest,q);root=next(forest.iter_nodes()).node_id
         opt.set_controls(.01,{root:{"temperature":temp,"inductive_energy":0.}})
         factors.append(next(g["lr"] for g in opt.optimizer.param_groups if g["owner"]==root)/.01)
