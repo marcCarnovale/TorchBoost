@@ -34,10 +34,10 @@ def test_central_force_learning_curve_report():
         run_science(seed=31, nfit=2000, depth=2, updates=128, noise=.05),
         run_science(seed=31, nfit=8000, depth=4, updates=512, noise=.05),
     ]
-    print("CENTRAL_FORCE_REPORT=" + json.dumps(rows, sort_keys=True))
     for row in rows:
         for learner in ("torchboost", "torchboost_ood", "catboost", "catboost_ood"):
             metrics = row[learner]
             assert math.isfinite(metrics["rmse"])
             assert math.isfinite(metrics["radial_alignment"])
             assert math.isfinite(metrics["inverse_power_exponent"])
+    raise AssertionError("CENTRAL_FORCE_REPORT=" + json.dumps(rows, sort_keys=True))
