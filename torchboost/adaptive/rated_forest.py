@@ -50,6 +50,11 @@ class RatedAdaptiveForest(AdaptiveForest):
         self.learn_rates = bool(learn_rates)
         self.rates = nn.Parameter(value.clone(), requires_grad=self.learn_rates)
 
+    @property
+    def stage_rates(self):
+        """Compatibility view used by shared generic progressive regularizers."""
+        return self.rates
+
     def coefficient_transform(self, x, coefficients):
         del x
         return coefficients * self.rates[None, :, None]
