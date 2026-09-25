@@ -5,7 +5,14 @@ from sklearn.metrics import log_loss
 from torchboost.adaptive.unified_progressive import UnifiedConfig,UnifiedProgressiveClassifier,default_native
 from torchboost.adaptive.config import StructureConfig,PhysicsConfig,PlasticityConfig,OnlineConfig
 from torchboost.adaptive.progressive_regularizers import Regularizers
-from experiments.performance_ratchet import make_dataset
+
+def make_dataset(seed):
+    nfit=12000;nselection=2000;naudit=3000
+    rng=np.random.default_rng(seed);X=rng.normal(size=(nfit+nselection+naudit,16)).astype("float32")
+    bits=(X[:,:4]>0).astype(int);context=sum(bits[:,j]*(1<<j) for j in range(4))
+    coefficient=rng.normal(size=(16,16));coefficient[:,:4]=0
+    raw=np.array([coefficient[k]@row for k,row in zip(context,X)]);raw=raw/np.std(raw)*1.15
+    p=1/(1+np.exp(-raw));return X,rng.binomial(1,p).astype(int)
 
 def config(kind,seed,updates):
     native=default_native();native.learning_rate=.01;native.batch_size=256;native.observation_every=4;native.control_sample_size=256
