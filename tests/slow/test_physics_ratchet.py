@@ -27,6 +27,7 @@ def test_topology_normalized_capacitor_retains_recurring_regime_gain():
 def test_deep_power_tree_512_mechanism_report():
     """Report five-way stationary-task behavior without turning it into a ratchet."""
     import math
+
     from experiments.deep_physics_power_tree import run as run_deep
 
     rows = [run_deep(kind, 71, 512) for kind in ("none", "plastic", "cap", "rlc", "full")]
