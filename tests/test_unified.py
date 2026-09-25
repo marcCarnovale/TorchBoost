@@ -228,3 +228,21 @@ def test_schedules_and_age_learning_rates():
 @pytest.mark.parametrize('kw',[{'row_subsample':0},{'feature_subsample':2},{'age_decay':float('nan')},{'n_trees':0},{'newton_l2':-1}])
 def test_invalid_config_rejected(kw):
     with pytest.raises(ValueError):UnifiedConfig(**kw)
+
+
+def test_evidence_growth_policy_uses_leaf_reducibility_metrics():
+    c=UnifiedConfig(n_trees=1,updates_per_stage=8,depth=1)
+    c.native.collect_metrics=True
+    c.native.structure.dynamic=True
+    c.native.structure.initial_depth=0
+    c.native.structure.max_depth=2
+    c.native.structure.max_nodes=15
+    c.native.structure.grow_every=1
+    c.native.structure.prune_every=20
+    c.native.structure.initial_dormant_fraction=0.
+    c.native.structure.growth_policy="evidence"
+    m=fit(cfg=c)
+    latest=m.trainer_.tracker.latest()
+    assert latest
+    assert all(o.exploration_score>=0 and o.budget_score>=0 for o in latest.values())
+    assert any(e["event"]=="grow" for e in m.trainer_.events)
