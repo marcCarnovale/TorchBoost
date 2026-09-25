@@ -64,7 +64,7 @@ def load_proxy(seed: int, smoke: bool = False):
         if len(classes) != 2:
             raise ValueError(f"HIGGS proxy must be binary, got {classes!r}")
         y = (raw == classes[-1]).astype("int64")
-        name = "OpenML HIGGS proxy data_id=23512 (100k), not canonical 11M confirmation"
+        name = "OpenML HIGGS proxy data_id=23512 (98,050 rows), not canonical 11M confirmation"
     if x.ndim != 2 or x.shape[1] < 28:
         raise ValueError(f"expected at least 28 HIGGS features, got {x.shape}")
     order = np.random.default_rng(seed + 1701).permutation(len(x))
@@ -72,7 +72,7 @@ def load_proxy(seed: int, smoke: bool = False):
     if smoke:
         counts = dict(train=3000, selection=600, ranking=600, audit=800)
     else:
-        counts = dict(train=70000, selection=10000, ranking=10000, audit=10000)
+        counts = dict(train=68050, selection=10000, ranking=10000, audit=10000)
     if sum(counts.values()) > len(x):
         raise ValueError(f"need {sum(counts.values())} rows, found {len(x)}")
     cuts, start = {}, 0
