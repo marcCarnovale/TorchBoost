@@ -39,7 +39,7 @@ jobs:
         if: matrix.python-version == '3.11'
         run: python -m pip install -e '.[dev,benchmark]'
       - name: Current adaptive research contracts
-        run: pytest -q tests/test_unified.py tests/test_grouped_oblique.py tests/test_oof_forest.py tests/test_topology_normalized_physics.py tests/test_normalized_optimizer_physics.py tests/test_effective_tree_count.py tests/test_leaf_evidence.py tests/test_direct_feedback_contract.py tests/test_thermal_exposure.py tests/test_deep_controller_protocol.py tests/test_covtype_depth_screen.py tests/test_controller_dose_calibration.py tests/test_controller_loss_scale.py tests/test_normalized_energy_source.py tests/test_deep_local_physics.py tests/test_physics_campaign.py tests/test_higgs_hybrid_benchmark.py
+        run: pytest -q tests/test_unified.py tests/test_grouped_oblique.py tests/test_oof_forest.py tests/test_topology_normalized_physics.py tests/test_normalized_optimizer_physics.py tests/test_effective_tree_count.py tests/test_leaf_evidence.py tests/test_direct_feedback_contract.py tests/test_thermal_exposure.py tests/test_deep_controller_protocol.py tests/test_covtype_depth_screen.py tests/test_controller_dose_calibration.py tests/test_controller_loss_scale.py tests/test_normalized_energy_source.py tests/test_deep_local_physics.py tests/test_physics_campaign.py tests/test_higgs_hybrid_benchmark.py tests/test_rated_forest.py
       - run: python examples/minimal.py
       - run: python examples/stagewise_binary.py
       - run: python -m benchmarks.run_binary --quick --seeds 0 --output /tmp/torchboost-smoke.json
