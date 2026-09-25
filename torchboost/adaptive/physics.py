@@ -40,24 +40,33 @@ class PhysicalController:
         cooling = capacity / cfg.cooling_time
         return resistance, inductance, capacity, cooling
 
-    def _recalibrate_topology(self) -> None:
-        """Preserve stored energy while changing normalized component values."""
+    def _recalibrate_topology(self, thermal_target: float | None = None, magnetic_target: float | None = None) -> None:
+        """Reparameterize normalized components without creating stored energy.
+
+        Thermal deviations retain their relative pattern up to one global scale;
+        magnetic currents retain signs/relative magnitudes up to one global scale.
+        This avoids artificial local temperature spikes when the node count changes.
+        """
         cfg = self.config
         if not cfg.topology_normalization or not self.nodes:
             return
-        resistance, inductance, capacity, cooling = self._normalized_components(len(self.nodes))
-        for state in self.nodes.values():
-            old_capacity = float(state["capacity"])
-            old_inductance = float(state.get("inductance", cfg.inductance))
-            thermal = old_capacity * (float(state["temperature"]) - cfg.ambient_temperature)
-            magnetic = .5 * old_inductance * float(state["current"]) ** 2
-            state["capacity"] = capacity
-            state["cooling"] = cooling
-            state["resistance"] = resistance
-            state["inductance"] = inductance
-            state["temperature"] = cfg.ambient_temperature + thermal / capacity
-            sign = -1. if float(state["current"]) < 0 else 1.
-            state["current"] = sign * math.sqrt(max(0., 2 * magnetic / inductance))
+        states=list(self.nodes.values())
+        thermal_before=(sum(float(st["capacity"])*(float(st["temperature"])-cfg.ambient_temperature) for st in states)
+                        if thermal_target is None else float(thermal_target))
+        magnetic_before=(sum(.5*float(st.get("inductance",cfg.inductance))*float(st["current"])**2 for st in states)
+                         if magnetic_target is None else float(magnetic_target))
+        resistance, inductance, capacity, cooling = self._normalized_components(len(states))
+        deltas=np.asarray([float(st["temperature"])-cfg.ambient_temperature for st in states],dtype=float)
+        thermal_raw=capacity*float(deltas.sum())
+        thermal_scale=(thermal_before/thermal_raw if abs(thermal_raw)>1e-15 else 0.)
+        currents=np.asarray([float(st["current"]) for st in states],dtype=float)
+        magnetic_raw=.5*inductance*float((currents**2).sum())
+        current_scale=math.sqrt(magnetic_before/magnetic_raw) if magnetic_raw>1e-30 else 0.
+        for i,state in enumerate(states):
+            state["capacity"]=capacity;state["cooling"]=cooling
+            state["resistance"]=resistance;state["inductance"]=inductance
+            state["temperature"]=cfg.ambient_temperature+deltas[i]*thermal_scale
+            state["current"]=float(currents[i]*current_scale)
 
     def synchronize(self, identities: dict[str, int]) -> None:
         cfg = self.config
@@ -66,18 +75,22 @@ class PhysicalController:
             inductance = float(state.get("inductance", cfg.inductance))
             self.retired_energy += (state["capacity"] * (state["temperature"] - cfg.ambient_temperature)
                                     + .5 * inductance * state["current"] ** 2)
+        thermal_target=sum(float(st["capacity"])*(float(st["temperature"])-cfg.ambient_temperature) for st in self.nodes.values())
+        magnetic_target=sum(.5*float(st.get("inductance",cfg.inductance))*float(st["current"])**2 for st in self.nodes.values())
         count=max(1,len(identities))
+        existing_mean=(sum(float(st["temperature"]) for st in self.nodes.values())/len(self.nodes)
+                       if self.nodes else cfg.initial_temperature)
         nr,nl,nc,nk=self._normalized_components(count) if cfg.topology_normalization else (cfg.resistance,cfg.inductance,cfg.heat_capacity,cfg.cooling)
         for key, tree in identities.items():
             if key not in self.nodes:
                 capacity = nc * math.exp(float(self.rng.normal(0., cfg.heterogeneity)))
                 cooling = nk * math.exp(float(self.rng.normal(0., cfg.heterogeneity)))
                 self.nodes[key] = {"tree": tree, "capacity": capacity, "cooling": cooling,
-                                   "temperature": cfg.initial_temperature, "current": 0.,
+                                   "temperature": existing_mean if cfg.topology_normalization else cfg.initial_temperature, "current": 0.,
                                    "resistance": nr, "inductance": nl, "heat": 0., "power": 0.,
                                    "cooling_energy": 0., "inductive_energy": 0.}
                 self.birth_energy += capacity * (cfg.initial_temperature - cfg.ambient_temperature)
-        self._recalibrate_topology()
+        self._recalibrate_topology(thermal_target, magnetic_target)
 
     def electrical_energy(self) -> float:
         return self.charge ** 2 / (2. * self.config.capacitance) + sum(

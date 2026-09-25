@@ -48,3 +48,24 @@ established. The next experiments must be much longer and include matched simple
 scheduled thaw, validation-triggered nonphysical thaw, capacitor, RLC, plasticity-only, and the full
 system. CatBoost is the primary strong tabular reference; physics is expected to contribute
 incrementally after the base predictor is competitive.
+
+
+## Topology-recalibration follow-up
+
+The first normalization implementation preserved each branch's stored energy separately, which could
+create local temperature spikes when new nodes changed per-node heat capacity. The controller now
+preserves **system** thermal and inductive energy under one global rescaling while retaining relative
+state patterns; new nodes enter at the pre-change mean temperature. The focused suite remains 49/49.
+
+On seed 17 after this correction (16 updates/stage):
+
+| controller | cumulative current-domain loss proxy | final returned-A audit | peak temperature |
+|---|---:|---:|---:|
+| no controls | 3.48018 | 0.73905 | 1.000 |
+| fixed non-electrical heat pulse | 3.36976 | 0.70043 | 1.992 |
+| topology-normalized capacitor | 3.37751 | **0.67664** | 2.535 |
+
+The simple fixed pulse has slightly lower cumulative loss while the capacitor has materially better
+final returned-domain loss. Therefore the present experiment does **not** establish that electrical
+control dominates a simple thaw schedule. It does show that the corrected capacitor behavior remains
+useful after removing the topology-energy confound. Longer matched experiments are required.

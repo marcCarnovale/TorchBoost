@@ -26,10 +26,14 @@ def cfg(kind,seed,stages,updates):
     n=default_native();n.learning_rate=.012;n.batch_size=256;n.observation_every=4;n.control_sample_size=192
     n.structure=StructureConfig(dynamic=(kind=="full"),initial_depth=0,max_depth=6,max_nodes=511,
         grow_every=12,prune_every=24,grow_per_event=1,structural_gate=True,complexity=1e-4,allocation_regularization=1e-4)
-    if kind in ("plastic","cap","rlc","full"):
+    if kind in ("plastic","pulse","cap","rlc","full"):
         n.plasticity=PlasticityConfig(mode="full",stiffness=.006,yield_threshold=.22,mobility=.05,
             work_hardening=.12,thermal_softening=.2 if kind in ("cap","rlc","full") else 0.,
             consolidation_rate=.05,release_policy="persistent_harm",release_patience=5)
+    if kind=="pulse":
+        n.physics=PhysicsConfig(mode="cooling",topology_normalization=True,capacitance=1.,discharge_time=5.,
+            inductive_time=2.,cooling_time=24.,total_heat_capacity=.06,dt=.2,
+            initial_temperature=1.,ambient_temperature=1.,max_temperature=3.,thaw_temperature=1.08)
     if kind in ("cap","rlc","full"):
         mode="capacitor" if kind=="cap" else "rlc"
         n.physics=PhysicsConfig(mode=mode,topology_normalization=True,capacitance=1.,discharge_time=5.,
@@ -54,7 +58,15 @@ def run(kind,seed,sequence,updates=48,shock_cycle=None):
         xc,yc=domain(650,name,seed*1000+stage*31+2,shock)
         xs,ys=domain(650,name,seed*1000+stage*31+3,shock)
         if stage==0:m.fit(x,y,control_set=(xc,yc),eval_set=(xs,ys),stop_stages=1)
-        else:m.continue_fit(x,y,control_set=(xc,yc),eval_set=(xs,ys),stop_stages=stage+1,allow_domain_shift=True)
+        else:
+            if kind=="pulse":
+                # Matched simple control: a fixed non-electrical heat pulse on each regime change.
+                m.trainer_.physical.synchronize({n.node_id:n.tree_id for n in m.trainer_.model.iter_nodes()})
+                for n in m.trainer_.model.iter_nodes():
+                    n.set_temperature(2.0)
+                    st=m.trainer_.physical.nodes.get(n.node_id)
+                    if st is not None: st["temperature"]=2.0
+            m.continue_fit(x,y,control_set=(xc,yc),eval_set=(xs,ys),stop_stages=stage+1,allow_domain_shift=True)
         trajectory.append({"stage":stage,"domain":name,
             "A":log_loss(AUD["A"][1],m.predict_proba(AUD["A"][0],last=True)),
             "B":log_loss(AUD["B"][1],m.predict_proba(AUD["B"][0],last=True)),
