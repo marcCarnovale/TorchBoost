@@ -141,3 +141,43 @@ not establish a broad best-in-class claim.
 The important design conclusion is that **experimental design and model capacity must scale together**:
 cross-fitting/bagging alone cannot rescue an under-capacity shallow tree, while deep flexible trees on
 small data need stronger automatic complexity control.
+
+## Overnight verification follow-up — 2026-09-25
+
+All figures below come from separated development/evaluation or selection/ranking/audit runs on the
+research branch; the blocking CatBoost ratchet remains unchanged.
+
+### Long-horizon deep-tree control
+
+At seed 71 and 2,048 updates, the no-control single power tree selected step 544 with audit NLL
+0.633576; its last-iterate audit NLL was 0.644543. The full adaptive package selected the same step
+with audit NLL 0.633818 and deteriorated to 0.692901 at the last iterate, despite 87 admitted anchors,
+37 growth events, and nonzero electrical injection. Thus the current full controller does not rescue
+late stationary-task drift and is slightly worse at the selected checkpoint in this run.
+
+### Thermal-dose fairness control
+
+Direct generic feedback was tuned on development seed 11 only. The development candidate chosen to
+match the oracle pulse peak temperature transferred to evaluation seeds 17/29 with mean peak
+temperature 1.4829, substantially below the pulse's 1.9917. Its mean gains versus no control were
+1.66% on cumulative current-domain loss and 3.92% on returned-A loss; the unconstrained
+performance-selected direct controller achieved 3.62% and 7.69% but ran hotter (mean peak
+temperature 2.6228). Therefore the existing temperature-match experiment does not yet isolate
+controller quality from thermal dose across seeds; a budget-normalized direct controller is the next
+fair comparison.
+
+### Covertype system benchmark
+
+On binary Covertype (80k train / 10k control / 10k selection / 10k ranking / 20k audit), the
+progressive 24x5 TorchBoost forest won the TorchBoost ranking split and reached audit NLL 0.34114,
+substantially improving over the single power tree. A separately ranked CatBoost depth-10,
+1,024-tree model reached 0.20218 audit NLL, leaving a large real-data gap. This negative result is
+retained.
+
+### Central-force diagnostic
+
+At seed 83, 32k fitting examples, depth 6, and 1,024 updates, generic TorchBoost training recovered an
+in-range inverse-power exponent 1.9713 with radial alignment 0.9972, but held-out farther-radius
+transfer remained poor (alignment 0.7775, exponent 2.7519). CatBoost had strong OOD radial alignment
+0.9911 but OOD exponent 0.7168. Neither model has yet demonstrated a globally transferable
+inverse-square law.
