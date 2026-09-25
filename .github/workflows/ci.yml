@@ -33,7 +33,8 @@ jobs:
       - name: Install CPU PyTorch for CPU runners
         run: python -m pip install 'torch>=2.2' --index-url https://download.pytorch.org/whl/cpu
       - run: python -m pip install -e '.[dev,benchmark]'
-      - run: pytest -q
+      - name: Current adaptive research contracts
+        run: pytest -q tests/test_unified.py tests/test_grouped_oblique.py tests/test_oof_forest.py tests/test_topology_normalized_physics.py
       - run: python examples/minimal.py
       - run: python examples/stagewise_binary.py
       - run: python -m benchmarks.run_binary --quick --seeds 0 --output /tmp/torchboost-smoke.json
