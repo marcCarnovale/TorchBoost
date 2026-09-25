@@ -1,7 +1,5 @@
-name: Overnight research studies
-on:
-  push:
-    branches: [research/unified-progressive-2026-09-24]
+name: Deep direct feedback study
+on: push
 permissions:
   contents: read
 jobs:
