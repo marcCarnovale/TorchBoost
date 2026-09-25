@@ -1,6 +1,9 @@
 
 import numpy as np
-from torchboost.adaptive.unified_progressive import UnifiedConfig,UnifiedProgressiveClassifier
+from torchboost.adaptive.unified_progressive import (
+    UnifiedConfig,
+    UnifiedProgressiveClassifier,
+)
 
 def dataset(n=1800,d=8,seed=4):
     r=np.random.default_rng(seed);x=r.normal(size=(n,d)).astype("float32")
