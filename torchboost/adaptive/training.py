@@ -29,9 +29,13 @@ def model_snapshot(model: AdaptiveForest) -> dict:
 
 
 def restore_model(snapshot: dict, input_dim: int, output_dim: int, config: ForestConfig) -> AdaptiveForest:
-    if snapshot["schema"].get("family") == "unified-progressive-v1":
+    family = snapshot["schema"].get("family")
+    if family == "unified-progressive-v1":
         from .unified_progressive import ProgressiveForest
         model = ProgressiveForest(input_dim, output_dim, config, schema=snapshot["schema"])
+    elif family == "rated-native-v1":
+        from .rated_forest import RatedAdaptiveForest
+        model = RatedAdaptiveForest(input_dim, output_dim, config, schema=snapshot["schema"])
     else:
         model = AdaptiveForest(input_dim, output_dim, config, schema=snapshot["schema"])
     model.load_state_dict(snapshot["state"])
