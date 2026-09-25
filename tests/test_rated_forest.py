@@ -52,7 +52,6 @@ def test_effective_count_is_invariant_to_tree_rate_rescaling_pair():
     x = torch.randn(31, 5, generator=torch.Generator().manual_seed(505))
     before = native.effective_tree_counts(x)
     with torch.no_grad():
-        root = native.trees[0].get(native.trees[0].root_id)
         # Scale the entire first tree output, including all residual values.
         for node in native.trees[0].nodes.values():
             node.value.mul_(2)
