@@ -1,4 +1,16 @@
-# Current research status — 2026-09-24
+# Current research status — 2026-09-25
+
+## Evidence correction before reading historical results
+
+The historical recurring-controller comparisons below reused the same global
+`AUD` observations for development candidate selection and evaluation across
+training seeds. They are **development evidence, not untouched audit confirmation**.
+Different training seeds alone did not repair that dependence. No historical
+numbers are erased. See `controller-audit-2026-09-25.md` for the reproduced
+controller defects, replacement five-split protocol, and thermal-dose controls.
+The latest clean runs are reported in `controller-results-2026-09-25.md`.
+
+## Historical research record — 2026-09-24
 
 ## Statistical backbone
 
@@ -144,8 +156,9 @@ small data need stronger automatic complexity control.
 
 ## Overnight verification follow-up — 2026-09-25
 
-All figures below come from separated development/evaluation or selection/ranking/audit runs on the
-research branch; the blocking CatBoost ratchet remains unchanged.
+The figures below are preserved historical results. In particular, the recurring-controller
+development/evaluation wording is superseded by the evidence correction above. The blocking
+CatBoost ratchet remains unchanged.
 
 ### Long-horizon deep-tree control
 

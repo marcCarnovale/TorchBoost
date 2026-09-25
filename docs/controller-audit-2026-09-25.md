@@ -79,3 +79,21 @@ The prior negative physics mechanism monitor remains nonblocking and unchanged.
 ## Bounded dose refinement
 
 When the coarse direct-gain grid misses the capacitor dose, `calibrate_controller_dose.py` permits at most three development-only refinements using the geometric mean of the peak and integrated-exposure ratios. Predictive scores never choose these gains; the original ranking-selected gain remains frozen. The uncalibrated result is preserved in a separate file, and source/input checksums bind the refinement. Confirmation never recalibrates on its own losses or thermal outcomes. A failed 20% joint match remains explicitly failed.
+
+
+## Remaining loss-unit confound
+
+The existing uncapped loss-to-charge source is linear in positive loss surprise,
+but capacitor energy and dissipated heat are quadratic in charge. The direct
+source is linear in surprise **as heat**. Starting from zero charge/current and
+without clipping, rescaling every loss by a positive factor a therefore scales
+capacitor heat by a^2 but direct heat by a. A constant additive loss offset
+cancels in both EMA-surprise signals.
+
+`tests/test_controller_loss_scale.py` characterizes this explicitly: multiplying
+all losses by ten gives capacitor heat ratio 100.00000000000017 and direct heat
+ratio 10.000000000000007. This is not a violation of the capacitor solver's energy
+identity. It is a remaining loss-source normalization/comparator confound. A
+fixed development gain need not preserve dose when loss-surprise amplitudes
+change on a new task. Do not call the physics fully loss-scale normalized or
+reinterpret a failed confirmation dose match after seeing predictive results.
