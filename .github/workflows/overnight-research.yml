@@ -23,9 +23,13 @@ jobs:
       - name: Learned-rate contracts
         run: pytest -q tests/test_effective_tree_count.py
       - name: Matched physics seed 17
-        run: python experiments/matched_physics_controls_v2.py --seed 17 --updates 16 | tee matched-17.json
+        run: |
+          set -o pipefail
+          python experiments/matched_physics_controls_v2.py --seed 17 --updates 16 | tee matched-17.json
       - name: Matched physics seed 29
-        run: python experiments/matched_physics_controls_v2.py --seed 29 --updates 16 | tee matched-29.json
+        run: |
+          set -o pipefail
+          python experiments/matched_physics_controls_v2.py --seed 29 --updates 16 | tee matched-29.json
       - uses: actions/upload-artifact@v4
         with:
           name: matched-physics
