@@ -26,3 +26,69 @@ jobs:
         with:
           name: law-mid-replication
           path: law-mid-47.json
+
+  direct-feedback-evaluation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install CPU PyTorch
+        run: python -m pip install 'torch>=2.2' --index-url https://download.pytorch.org/whl/cpu
+      - run: python -m pip install -e '.[dev,benchmark]'
+      - name: Select direct feedback on development seed and evaluate held-out seeds
+        run: python experiments/direct_feedback_evaluation.py --updates 16 --out direct-feedback-evaluation.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: direct-feedback-evaluation
+          path: direct-feedback-evaluation.json
+
+  native-interpolating-forest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install CPU PyTorch
+        run: python -m pip install 'torch>=2.2' --index-url https://download.pytorch.org/whl/cpu
+      - run: python -m pip install -e '.[dev,benchmark]'
+      - name: Native overcomplete forest interpolation/compression study
+        run: python experiments/native_interpolating_forest.py --seed 61 --out native-interpolating-61.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-interpolating-forest
+          path: native-interpolating-61.json
+
+  covtype-benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install CPU PyTorch
+        run: python -m pip install 'torch>=2.2' --index-url https://download.pytorch.org/whl/cpu
+      - run: python -m pip install -e '.[dev,benchmark]'
+      - name: Larger public Covertype benchmark
+        run: python experiments/covtype_binary_benchmark.py --seed 53 --train 80000 --out covtype-80k-53.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: covtype-80k
+          path: covtype-80k-53.json
