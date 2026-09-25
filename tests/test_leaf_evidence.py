@@ -1,6 +1,8 @@
 import numpy as np
 import torch
+
 from torchboost.adaptive.leaf_evidence import leaf_evidence
+
 
 def test_reducible_signal_earns_more_budget_than_noise():
     r=np.random.default_rng(8);n=800
@@ -12,6 +14,7 @@ def test_reducible_signal_earns_more_budget_than_noise():
     assert a.reducible_loss>b.reducible_loss
     assert a.explainable_fraction>b.explainable_fraction
     assert a.budget_score>b.budget_score
+
 
 def test_tiny_leaf_does_not_spend_without_evidence():
     r=np.random.default_rng(9);n=500
