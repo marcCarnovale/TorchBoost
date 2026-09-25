@@ -17,7 +17,7 @@ def make_dataset(seed):
 def config(kind,seed,updates):
     native=default_native();native.learning_rate=.01;native.batch_size=256;native.observation_every=4;native.control_sample_size=256
     native.structure=StructureConfig(dynamic=(kind=="full"),initial_depth=0,max_depth=6,max_nodes=511,grow_every=24,
-        prune_every=48,grow_per_event=1,growth_policy="evidence" if kind=="full" else "best_first",
+        prune_every=48,grow_per_event=1,growth_policy="hybrid" if kind=="full" else "best_first",
         structural_gate=True,complexity=1e-4,allocation_regularization=1e-4)
     if kind in ("plastic","cap","rlc","full"):
         native.plasticity=PlasticityConfig(mode="full",stiffness=.004,yield_threshold=.2,mobility=.04,work_hardening=.12,
