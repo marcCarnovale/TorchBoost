@@ -2,8 +2,8 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
-
 from experiments.direct_feedback_control import DirectFeedbackController
+
 from torchboost.adaptive.config import PhysicsConfig
 from torchboost.adaptive.physics import PhysicalController
 
