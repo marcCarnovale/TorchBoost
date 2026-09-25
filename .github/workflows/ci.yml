@@ -12,7 +12,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python -m pip install 'ruff>=0.6'
+      - run: python -m pip install 'ruff==0.16.9'
       - run: ruff check .
   test:
     needs: lint
@@ -31,8 +31,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
       - name: Install CPU PyTorch for CPU runners
-        run: python -m pip install 'torch>=2.2' --index-url https://download.pytorch.org/whl/cpu
-      - run: python -m pip install -e '.[dev,benchmark]'
+        run: python -m pip install 'torch==2.14.0' --index-url https://download.pytorch.org/whl/cpu
+      - run: python -m pip install -e '.[dev,benchmark]' -c research-constraints-2026-09-25.txt
       - name: Current adaptive research contracts
         run: pytest -q tests/test_unified.py tests/test_grouped_oblique.py tests/test_oof_forest.py tests/test_topology_normalized_physics.py tests/test_normalized_optimizer_physics.py tests/test_effective_tree_count.py tests/test_leaf_evidence.py tests/test_direct_feedback_contract.py tests/test_thermal_exposure.py tests/test_deep_controller_protocol.py tests/test_covtype_depth_screen.py tests/test_controller_dose_calibration.py tests/test_controller_loss_scale.py
       - run: python examples/minimal.py
@@ -52,11 +52,11 @@ jobs:
           python-version: "3.12"
           cache: pip
       - name: Install CPU PyTorch
-        run: python -m pip install 'torch>=2.2' --index-url https://download.pytorch.org/whl/cpu
+        run: python -m pip install 'torch==2.14.0' --index-url https://download.pytorch.org/whl/cpu
       - name: Install research package and pinned CatBoost
         run: |
-          python -m pip install -e '.[dev,benchmark]'
-          python -m pip install 'catboost==1.2.8'
+          python -m pip install -e '.[dev,benchmark]' -c research-constraints-2026-09-25.txt
+          python -m pip install 'catboost==1.2.8' -c research-constraints-2026-09-25.txt
       - name: CatBoost performance ratchet
         run: pytest -q tests/slow/test_catboost_ratchet.py
   mechanism-monitor:
@@ -74,7 +74,7 @@ jobs:
           python-version: "3.12"
           cache: pip
       - name: Install CPU PyTorch
-        run: python -m pip install 'torch>=2.2' --index-url https://download.pytorch.org/whl/cpu
-      - run: python -m pip install -e '.[dev,benchmark]'
+        run: python -m pip install 'torch==2.14.0' --index-url https://download.pytorch.org/whl/cpu
+      - run: python -m pip install -e '.[dev,benchmark]' -c research-constraints-2026-09-25.txt
       - name: Experimental recurring-regime physics monitor
         run: pytest -q tests/slow/test_physics_ratchet.py

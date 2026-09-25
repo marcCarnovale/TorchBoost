@@ -1,5 +1,9 @@
 # Current research status — 2026-09-25
 
+## Cross-environment reproduction correction — 2026-09-25
+
+GitHub Actions independently reproduced the 2,048-update deep-controller protocol on the exact same source fingerprint and identical split hashes, but with Python 3.12.14 / PyTorch 2.14.0 / NumPy 2.5.3 / scikit-learn 1.9.1 instead of the earlier local Python 3.13.5 / PyTorch 2.10.0 / NumPy 2.3.5 / scikit-learn 1.8.0. Candidate ordering changed at the 1e-4 to 1e-3 NLL scale. On both fresh Action seeds, plasticity-only won the ranking split but lost to no-control on the subsequently opened audit. Therefore no adaptive controller has a demonstrated audit advantage, and fine controller rankings are software-environment-sensitive at the present effect sizes. See `controller-reproduction-2026-09-25.md`. Research dependencies are now pinned for blocking CI; the exact full freeze remains attached to the Actions artifact.
+
 ## Evidence correction before reading historical results
 
 The historical recurring-controller comparisons below reused the same global
