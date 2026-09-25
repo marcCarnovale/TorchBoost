@@ -55,6 +55,7 @@ class UnifiedConfig:
     readout: str = 'residual'
     linear_values: bool = False
     linear_l2: float = 10.
+    proposal_holdout: float = 0.
     proposal_mode: str = 'hist_newton'  # hist_newton / linear_model_tree / grouped_oblique
     feature_groups: tuple[tuple[int,...], ...] = ()
     grouped_gate_l2: float = 1.
@@ -92,6 +93,7 @@ class UnifiedConfig:
         for k in ('cart_strength','max_delta'):
             if not math.isfinite(getattr(self,k)) or getattr(self,k)<=0:raise ValueError(f'invalid {k}')
         if not math.isfinite(self.age_decay) or not 0<=self.age_decay<=1:raise ValueError('invalid age_decay')
+        if not 0<=self.proposal_holdout<.5:raise ValueError('proposal_holdout must lie in [0,.5)')
         if self.depth>self.native.structure.max_depth:raise ValueError('proposal depth exceeds native budget')
         self.native.node_linear_values=self.linear_values
         if self.readout not in ('leaf','residual') or self.gate_release not in ('hard','threshold','oblique'):raise ValueError('invalid tree mode')
@@ -334,7 +336,7 @@ class UnifiedTrainer(JointTrainer):
             mask=torch.zeros(self.model.input_dim);mask[subset]=1.
             self.sampling_history.append({'stage':tree_id,'rows':pool.tolist(),'features':subset.tolist()})
             ds=DataSplit(train.x[pool],train.y[pool],train.weight[pool]);scores=self.logits(ds)
-            bcfg=BuilderConfig(pc.depth,pc.bins,pc.min_samples_leaf,pc.min_child_weight,pc.newton_l2,pc.split_cost,pc.max_delta,pc.cart_strength,pc.readout,pc.linear_values,pc.linear_l2)
+            bcfg=BuilderConfig(pc.depth,pc.bins,pc.min_samples_leaf,pc.min_child_weight,pc.newton_l2,pc.split_cost,pc.max_delta,pc.cart_strength,pc.readout,pc.linear_values,pc.linear_l2,pc.proposal_holdout)
             if pc.proposal_mode=='grouped_oblique' and tree_id==0:
                 tree,record=build_grouped_oblique_model_tree(ds,scores,self.objective.task,tree_id,self.config,bcfg,mask,self.generator,pc.feature_groups,pc.grouped_gate_l2,pc.grouped_gate_starts,pc.grouped_gate_steps)
             else:

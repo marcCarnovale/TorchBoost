@@ -85,6 +85,7 @@ class BuilderConfig:
     readout: str = 'residual'
     linear_values: bool = False
     linear_l2: float = 10.
+    honest_fraction: float = 0.
 
 
 @torch.no_grad()
@@ -210,13 +211,26 @@ def build_linear_model_tree(data, scores, task, tree_id, native, cfg, feature_ma
         node.value.copy_(torch.as_tensor([local[0]],dtype=node.value.dtype));node.linear_value.copy_(torch.as_tensor(local[1:,None],dtype=node.value.dtype))
         best=None;base_loss=loss(rows,beta)
         if node.depth<cfg.depth and len(rows)>=2*cfg.min_samples:
+            if cfg.honest_fraction>0 and len(rows)>=4*cfg.min_samples:
+                order=torch.randperm(len(rows),generator=generator).numpy()
+                nv=max(2*cfg.min_samples,int(round(len(rows)*cfg.honest_fraction)))
+                valid_rows=rows[order[:nv]];fit_rows=rows[order[nv:]]
+                parent_fit=fit(fit_rows);base_eval=loss(valid_rows,parent_fit)
+            else:
+                fit_rows=valid_rows=rows;parent_fit=beta;base_eval=base_loss
             for j in columns:
-                cuts=np.unique(np.quantile(x[rows,j],np.linspace(.1,.9,max(2,min(cfg.bins,10)))))
+                cuts=np.unique(np.quantile(x[fit_rows,j],np.linspace(.1,.9,max(2,min(cfg.bins,10)))))
                 for th in cuts:
+                    left_fit=fit_rows[x[fit_rows,j]<=th];right_fit=fit_rows[x[fit_rows,j]>th]
                     left=rows[x[rows,j]<=th];right=rows[x[rows,j]>th]
-                    if len(left)<cfg.min_samples or len(right)<cfg.min_samples:continue
-                    bl,br=fit(left),fit(right);gain=base_loss-loss(left,bl)-loss(right,br)-cfg.split_cost
-                    if gain>1e-10 and (best is None or gain>best[0]):best=(gain,int(j),float(th),left,right,bl,br)
+                    if min(len(left_fit),len(right_fit),len(left),len(right))<cfg.min_samples:continue
+                    bl_fit,br_fit=fit(left_fit),fit(right_fit)
+                    lv=valid_rows[x[valid_rows,j]<=th];rv=valid_rows[x[valid_rows,j]>th]
+                    if len(lv)<max(2,cfg.min_samples//2) or len(rv)<max(2,cfg.min_samples//2):continue
+                    gain=base_eval-loss(lv,bl_fit)-loss(rv,br_fit)-cfg.split_cost
+                    if gain>1e-10 and (best is None or gain>best[0]):
+                        # Refit accepted child experts on all child rows for the actual proposal.
+                        best=(gain,int(j),float(th),left,right,fit(left),fit(right))
         if best is None:
             leaves.append({'node_id':key,'rows':len(rows),'value':[float(beta[0])],'linear_norm':float(np.linalg.norm(beta[1:]))});continue
         gain,j,threshold,left,right,bl,br=best;children=tree.grow(key,generator=generator,arity=2)

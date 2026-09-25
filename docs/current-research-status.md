@@ -69,3 +69,20 @@ The simple fixed pulse has slightly lower cumulative loss while the capacitor ha
 final returned-domain loss. Therefore the present experiment does **not** establish that electrical
 control dominates a simple thaw schedule. It does show that the corrected capacitor behavior remains
 useful after removing the topology-energy confound. Longer matched experiments are required.
+
+
+## Base-model diagnostic against CatBoost
+
+A fresh smaller-data context-dependent affine task (4,096 fitting rows) exposes a current weakness.
+The ordinary affine model-tree proposal reaches low training loss quickly but its selection loss
+deteriorates after the first few checkpoints. At 96 updates its selected audit NLL was 0.69773 versus
+0.68717 for a 256-tree CatBoost reference. Extending to 192 updates did not help: the selected
+checkpoint remained step 16 while later training continued to overfit.
+
+An experimental honest node-split proposal (`proposal_holdout=.25`) prevented the same aggressive
+split overfit but overcorrected: it selected the intercept-only model (audit 0.69274). This option is
+therefore retained as experimental and defaults to zero.
+
+Interpretation: the base-model gap is currently **proposal/generalization quality**, not insufficient
+training duration. The next statistical work should use cross-fitted or regularized model-tree split
+selection rather than relying on physics to rescue an overfit proposal.
