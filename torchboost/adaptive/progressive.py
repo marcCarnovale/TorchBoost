@@ -40,8 +40,7 @@ class ProgressiveConfig:
     leaf_l2: float = 0.0
     depth_shrinkage: float = 0.0
     route_balance: float = 0.0
-    tree_l2: float = 0.0
-    newton_refit: bool = False
+
     newton_l2: float = 1e-3
     min_child_mass: float = 0.0
     row_subsample: float = 1.0
@@ -56,14 +55,12 @@ class ProgressiveConfig:
     random_state: int = 0
 
     def __post_init__(self):
-        for name in ("n_trees","depth","stage_updates","batch_size","cart_value_updates","patience_stages"):
-            if not isinstance(getattr(self,name),int) or getattr(self,name) < (0 if name in ("depth","cart_value_updates") else 1):
-                raise ValueError(f"{name} has invalid value")
+
         for name in ("learning_rate","new_tree_shrinkage","cart_strength","routing_temperature","gradient_clip"):
             if not math.isfinite(getattr(self,name)) or getattr(self,name) <= 0: raise ValueError(f"{name} must be positive")
         if not 0 <= self.old_tree_lr_decay <= 1: raise ValueError("old_tree_lr_decay must lie in [0,1]")
         if self.readout not in ("leaf","residual"): raise ValueError("readout must be leaf or residual")
-        for name in ("weight_decay","anchor_strength","leaf_l2","depth_shrinkage","route_balance","tree_l2","newton_l2","min_child_mass"):
+
             if not math.isfinite(getattr(self,name)) or getattr(self,name) < 0:
                 raise ValueError(f"{name} must be finite and nonnegative")
         for name in ("row_subsample","feature_subsample"):
@@ -106,13 +103,6 @@ def _routing_mass_penalty(tree: PackedSingleTree, x: torch.Tensor, cfg: Progress
     # Soft analogue of minimum child weight: penalize tiny effective children.
     return cfg.min_child_mass * torch.relu(cfg.min_child_mass - effective).square().mean()
 
-def _ensemble_regularization(model: "ProgressiveSum", cfg: ProgressiveConfig) -> torch.Tensor:
-    z = model.bias.new_zeros(())
-    for rate, tree in zip(model.rates, model.trees):
-        z = z + _tree_regularization(tree, cfg)
-        if cfg.tree_l2:
-            z = z + cfg.tree_l2 * (rate * tree.values).square().mean()
-    return z / max(1, len(model.trees))
 
 def _sample_indices(n: int, batch: int, fraction: float, generator: torch.Generator) -> torch.Tensor:
     size = min(batch, n, max(1, int(math.ceil(n * fraction))))
@@ -165,11 +155,6 @@ def _newton_refit_binary(tree: PackedSingleTree, base_score: torch.Tensor, x: to
     if torch.isfinite(value).all():
         tree.values.copy_(value.to(tree.values))
 
-class ProgressiveSum(nn.Module):
-    def __init__(self, bias: torch.Tensor):
-        super().__init__(); self.bias=nn.Parameter(bias.clone()); self.trees=nn.ModuleList(); self.register_buffer("rates",torch.zeros(0))
-    def append(self, tree, rate: float):
-        self.trees.append(tree); self.rates=torch.cat([self.rates,torch.tensor([rate],dtype=self.bias.dtype)])
     def forward(self,x):
         out=self.bias.expand(len(x),-1)
         for r,t in zip(self.rates,self.trees): out=out+r*t(x)
@@ -225,7 +210,7 @@ class _ProgressiveEstimator(BaseEstimator):
             counts=torch.bincount(train.y,weights=train.weight,minlength=len(self.classes_));p=(counts/counts.sum()).clamp_min(1e-7)
             bias=(p[1]/p[0]).log().reshape(1) if len(p)==2 else p.log()
         else:bias=(train.y*train.weight[:,None]).sum(0)/train.weight.sum()
-        self.model_=ProgressiveSum(bias);self.history_=[];self.stage_states_=[];self.best_score_=float(self.objective_.weighted_loss(self.model_(valid.x),valid.y,valid.weight).detach());self.best_state_=deepcopy(self.model_.state_dict());self.best_stage_=0
+        self.model_=ProgressiveSum(bias,cfg.learn_tree_rates);self.history_=[];self.stage_states_=[];self.best_score_=float(self.objective_.weighted_loss(self.model_(valid.x),valid.y,valid.weight).detach());self.best_state_=deepcopy(self.model_.state_dict());self.best_stage_=0
         rng=torch.Generator().manual_seed(cfg.random_state);stale=0
         for stage in range(cfg.n_trees):
             tree,sc=_new_packed(self.n_features_in_,self.objective_.output_dim,cfg,cfg.random_state+1009*stage)
@@ -251,8 +236,7 @@ class _ProgressiveEstimator(BaseEstimator):
             groups=[];n=len(self.model_.trees)
             for j,t in enumerate(self.model_.trees):
                 age=n-1-j;groups.append({'params':list(t.parameters()),'lr':cfg.learning_rate*(cfg.old_tree_lr_decay**age)})
-            groups.append({'params':[self.model_.bias],'lr':cfg.learning_rate*(cfg.old_tree_lr_decay**n)})
-            opt=torch.optim.AdamW(groups,weight_decay=cfg.weight_decay)
+
             for update in range(cfg.stage_updates):
                 idx=_sample_indices(len(train.x),cfg.batch_size,cfg.row_subsample,rng)
                 opt.zero_grad(set_to_none=True);pred=self.model_(train.x[idx]);loss=self.objective_.weighted_loss(pred,train.y[idx],train.weight[idx])
@@ -261,7 +245,7 @@ class _ProgressiveEstimator(BaseEstimator):
                     for j,t in enumerate(self.model_.trees[:-1]):
                         for name,p in t.named_parameters(): penalty=penalty+(p-anchors[j][name]).square().mean()
                     loss=loss+cfg.anchor_strength*penalty/max(1,len(anchors))
-                loss=loss+_ensemble_regularization(self.model_,cfg)
+
                 loss.backward()
                 # Preserve the CART partition briefly: values adapt first, then routing flips to differentiable training.
                 if update < cfg.cart_value_updates:
@@ -269,17 +253,14 @@ class _ProgressiveEstimator(BaseEstimator):
                 else:
                     _mask_tree_gradients(tree,feature_mask)
                 torch.nn.utils.clip_grad_norm_(self.model_.parameters(),cfg.gradient_clip,error_if_nonfinite=True);opt.step()
-            with torch.no_grad():
-                tr=float(self.objective_.weighted_loss(self.model_(train.x),train.y,train.weight));va=float(self.objective_.weighted_loss(self.model_(valid.x),valid.y,valid.weight))
-            self.history_.append({'stage':stage+1,'trees':n,'train_loss':tr,'validation_loss':va,'tree_rates':self.model_.rates.tolist(),'tree_lrs':[g['lr'] for g in groups[:-1]]})
+
             self.stage_states_.append(deepcopy(self.model_.state_dict()))
             if va < self.best_score_-cfg.min_improvement:
                 self.best_score_=va;self.best_stage_=n;self.best_state_=deepcopy(self.model_.state_dict());stale=0
             else:stale+=1
             if stale>=cfg.patience_stages:break
         # Reconstruct the best prefix, because state_dict shapes grow stage by stage.
-        best_trees=self.best_stage_;self.model_.trees=nn.ModuleList(list(self.model_.trees)[:best_trees]);self.model_.rates=self.model_.rates[:best_trees].clone()
-        if best_trees:self.model_.load_state_dict(self.stage_states_[best_trees-1])
+
         else:self.model_.bias.data.copy_(self.best_state_['bias'])
         self.model_.eval();self.n_estimators_=best_trees
         return self
