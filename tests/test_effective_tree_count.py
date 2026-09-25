@@ -1,7 +1,10 @@
 import numpy as np
 import torch
+
 from torchboost.adaptive.progressive import (
-    ProgressiveConfig, ProgressiveSum, ProgressiveTreeClassifier,
+    ProgressiveConfig,
+    ProgressiveSum,
+    ProgressiveTreeClassifier,
     _contribution_count_stats,
 )
 
