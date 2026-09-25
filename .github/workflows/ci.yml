@@ -38,3 +38,24 @@ jobs:
       - run: python examples/minimal.py
       - run: python examples/stagewise_binary.py
       - run: python -m benchmarks.run_binary --quick --seeds 0 --output /tmp/torchboost-smoke.json
+  performance-ratchet:
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install CPU PyTorch
+        run: python -m pip install 'torch>=2.2' --index-url https://download.pytorch.org/whl/cpu
+      - name: Install research package and pinned CatBoost
+        run: |
+          python -m pip install -e '.[dev,benchmark]'
+          python -m pip install 'catboost==1.2.8'
+      - name: CatBoost performance ratchet
+        run: pytest -q tests/slow/test_catboost_ratchet.py
