@@ -45,9 +45,10 @@ class DirectFeedbackController(PhysicalController):
         if not math.isfinite(loss) or step <= self.last_step or not self.nodes:
             return super().advance(loss, observations, step)
         cfg = self.config
-        direct = 0.0
-        if self.reference is not None:
-            direct = min(cfg.max_injection, cfg.charge_gain * max(0.0, loss - self.reference))
+        source_signal = self._source_surprise(loss)
+        direct = min(cfg.max_injection, cfg.charge_gain * source_signal)
+        if cfg.source_normalization == "adaptive_energy":
+            direct *= self._thermal_source_unit()
         keys = sorted(self.nodes)
         additions = np.zeros(len(keys), dtype=float)
         before_thermal = self.thermal_energy()
@@ -66,6 +67,7 @@ class DirectFeedbackController(PhysicalController):
         # Report the WHOLE step and include the source in its energy identity.
         out["thermal_before"] = float(before_thermal)
         out["direct_heat_injection"] = float(direct)
+        out["source_signal"] = float(source_signal)
         out["direct_heat_total"] = float(self.direct_heat_total)
         out["external_heat"] = float(direct)
         out["energy_error"] = float(

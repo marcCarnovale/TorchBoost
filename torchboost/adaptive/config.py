@@ -134,6 +134,11 @@ class PhysicsConfig:
     max_injection: float = .5
     max_charge: float = 5.
     smoothing: float = .8
+    # Source law. legacy maps raw positive loss surprise to charge.
+    # adaptive_energy standardizes loss surprise by an online innovation
+    # scale and interprets charge_gain/max_injection as dimensionless fractions
+    # of the live ambient-to-thaw thermal-energy scale.
+    source_normalization: str = "legacy"
     dt: float = .2
     resistance: float = 10.
     resistance_min: float = .1
@@ -164,6 +169,7 @@ class PhysicsConfig:
         choice("allocation", self.allocation, ("uniform", "protective", "uncertainty", "gradient"))
         choice("granularity", self.granularity, ("global", "tree", "node"))
         choice("cooling_law", self.cooling_law, ("linear", "radiative"))
+        choice("source_normalization", self.source_normalization, ("legacy", "adaptive_energy"))
         for name in ("capacitance", "inductance", "dt", "resistance", "resistance_min", "resistance_max", "initial_temperature", "ambient_temperature", "max_temperature", "heat_capacity", "thaw_temperature", "max_charge", "discharge_time", "inductive_time", "cooling_time", "total_heat_capacity"):
             positive(name, getattr(self, name))
         for name in ("charge_gain", "max_injection", "cooling", "heterogeneity", "lr_coupling", "spark_energy"):

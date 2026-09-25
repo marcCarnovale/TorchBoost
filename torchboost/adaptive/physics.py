@@ -26,6 +26,7 @@ class PhysicalController:
         self.nodes: dict[str, dict[str, float | int]] = {}
         self.charge = 0.
         self.reference: float | None = None
+        self.surprise_scale: float | None = None
         self.last_step = -1
         self.last_loss: float | None = None
         self.history: list[dict] = []
@@ -151,6 +152,31 @@ class PhysicalController:
                 result = 1. / conductance
         return result
 
+    def _source_surprise(self, loss: float) -> float:
+        """Positive generic loss surprise in the configured source units."""
+        if self.reference is None:
+            return 0.
+        innovation = float(loss - self.reference)
+        if self.config.source_normalization == "legacy":
+            return max(0., innovation)
+        scale = abs(innovation) if self.surprise_scale is None else self.surprise_scale
+        if scale == 0.:
+            return 0.
+        return max(0., innovation) / scale
+
+    def _thermal_source_unit(self) -> float:
+        """Live energy needed to raise the controller from ambient to thaw."""
+        span = self.config.thaw_temperature - self.config.ambient_temperature
+        return span * sum(float(state["capacity"]) for state in self.nodes.values())
+
+    def _update_source_statistics(self, loss: float) -> None:
+        cfg = self.config
+        if self.reference is not None and cfg.source_normalization == "adaptive_energy":
+            innovation = abs(float(loss - self.reference))
+            self.surprise_scale = (innovation if self.surprise_scale is None
+                                   else cfg.smoothing * self.surprise_scale + (1 - cfg.smoothing) * innovation)
+        self.reference = loss if self.reference is None else cfg.smoothing * self.reference + (1 - cfg.smoothing) * loss
+
     def _cool(self, temperature: np.ndarray, capacities: np.ndarray, cooling: np.ndarray) -> np.ndarray:
         cfg = self.config
         if cfg.cooling_law == "linear":
@@ -178,13 +204,22 @@ class PhysicalController:
         before_electrical = self.electrical_energy()
         before_thermal = self.thermal_energy()
         injection = 0.
-        if self.reference is not None and cfg.mode in ("capacitor", "rlc"):
-            injection = min(cfg.max_injection, cfg.charge_gain * max(0., loss - self.reference))
-            injection = min(injection, max(0., cfg.max_charge - self.charge))
         old_charge = self.charge
+        source_signal = self._source_surprise(loss)
+        if cfg.mode in ("capacitor", "rlc") and source_signal > 0.:
+            if cfg.source_normalization == "adaptive_energy":
+                requested_work = self._thermal_source_unit() * min(
+                    cfg.max_injection, cfg.charge_gain * source_signal
+                )
+                target_sq = self.charge**2 + 2 * cfg.capacitance * requested_work
+                target_charge = min(cfg.max_charge, math.sqrt(max(0., target_sq)))
+                injection = max(0., target_charge - self.charge)
+            else:
+                injection = min(cfg.max_injection, cfg.charge_gain * source_signal)
+                injection = min(injection, max(0., cfg.max_charge - self.charge))
         self.charge += injection
         source_work = (self.charge**2 - old_charge**2) / (2 * cfg.capacitance)
-        self.reference = loss if self.reference is None else cfg.smoothing * self.reference + (1 - cfg.smoothing) * loss
+        self._update_source_statistics(loss)
         resistance = self._resistances(keys, observations)
         current0 = np.asarray([self.nodes[k]["current"] for k in keys], dtype=np.float64)
         heat = np.zeros(len(keys))
@@ -260,6 +295,7 @@ class PhysicalController:
         error = (after_electrical + after_thermal - before_electrical - before_thermal
                  - source_work - float(sparks.sum()) + float(cooled_energy.sum()) + vented)
         result = {"step": step, "loss": loss, "reference": self.reference, "charge": self.charge,
+                  "surprise_scale": self.surprise_scale, "source_signal": source_signal,
                   "injected_charge": injection, "source_work": source_work,
                   "electrical_before": before_electrical, "electrical_after": after_electrical,
                   "thermal_before": before_thermal, "thermal_after": after_thermal,
@@ -277,12 +313,14 @@ class PhysicalController:
                 "retired_energy": self.retired_energy, "birth_energy": self.birth_energy}
 
     def state_dict(self) -> dict:
-        return {**self.snapshot(), "reference": self.reference, "last_loss": self.last_loss,
-                "rng": self.rng.bit_generator.state, "history": deepcopy(self.history)}
+        return {**self.snapshot(), "reference": self.reference, "surprise_scale": self.surprise_scale,
+                "last_loss": self.last_loss, "rng": self.rng.bit_generator.state,
+                "history": deepcopy(self.history)}
 
     def load_state_dict(self, value: dict) -> None:
         self.charge, self.nodes = value["charge"], deepcopy(value["nodes"])
         self.last_step, self.last_loss, self.reference = value["last_step"], value["last_loss"], value["reference"]
+        self.surprise_scale = value.get("surprise_scale")
         self.retired_energy, self.birth_energy = value["retired_energy"], value["birth_energy"]
         self.rng.bit_generator.state = value["rng"]
         self.history = deepcopy(value["history"])
