@@ -22,3 +22,22 @@ def test_topology_normalized_capacitor_retains_recurring_regime_gain():
 
     assert regret_gain >= RATCHET["min_regret_improvement"], (none, cap, regret_gain)
     assert final_gain >= RATCHET["min_final_A_improvement"], (none, cap, final_gain)
+
+
+def test_central_force_learning_curve_report():
+    """Probe whether more capacity/data moves the learned field toward inverse-square structure."""
+    import math
+
+    from experiments.scientific_law_discovery import run as run_science
+
+    rows = [
+        run_science(seed=31, nfit=2000, depth=2, updates=128, noise=.05),
+        run_science(seed=31, nfit=8000, depth=4, updates=512, noise=.05),
+    ]
+    print("CENTRAL_FORCE_REPORT=" + json.dumps(rows, sort_keys=True))
+    for row in rows:
+        for learner in ("torchboost", "torchboost_ood", "catboost", "catboost_ood"):
+            metrics = row[learner]
+            assert math.isfinite(metrics["rmse"])
+            assert math.isfinite(metrics["radial_alignment"])
+            assert math.isfinite(metrics["inverse_power_exponent"])
