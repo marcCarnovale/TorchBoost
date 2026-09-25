@@ -2,6 +2,7 @@
 import math
 from types import SimpleNamespace
 
+import numpy as np
 import torch
 from torchboost.adaptive.config import ForestConfig, PhysicsConfig
 from torchboost.adaptive.optim import DynamicOptimizer, LocalMomentum
@@ -79,3 +80,47 @@ def test_circuit_momentum_energy_scale_is_topology_invariant():
     two = _controlled_group(2, 1., .5)
     four = _controlled_group(4, 1., .25)
     assert math.isclose(two["inductive_energy"], four["inductive_energy"], rel_tol=1e-12)
+
+
+def _observation(gradient):
+    return SimpleNamespace(
+        utility=.1,
+        entropy=.2,
+        gradient_norm=gradient,
+        structural_gradient=.3 * gradient,
+    )
+
+
+def test_allocation_uses_nominal_resistance_instead_of_compounding_previous_step():
+    c = cfg("capacitor")
+    c.allocation = "gradient"
+    p = PhysicalController(c)
+    p.synchronize({"0:0":0, "0:1":0})
+    observations = {"0:0":_observation(.2), "0:1":_observation(1.1)}
+    first = p._resistances(sorted(p.nodes), observations)
+    for key, value in zip(sorted(p.nodes), first):
+        p.nodes[key]["resistance"] = float(value)
+    second = p._resistances(sorted(p.nodes), observations)
+    assert np.allclose(first, second, rtol=1e-12, atol=1e-12)
+
+
+def test_nonuniform_allocation_preserves_topology_normalized_total_conductance():
+    c = cfg("capacitor")
+    c.allocation = "gradient"
+    p = PhysicalController(c)
+    p.synchronize({f"0:{i}":0 for i in range(7)})
+    keys = sorted(p.nodes)
+    observations = {key:_observation(.1 + i) for i, key in enumerate(keys)}
+    resistance = p._resistances(keys, observations)
+    expected = c.capacitance / c.discharge_time
+    assert math.isclose(float((1. / resistance).sum()), expected, rel_tol=1e-12)
+
+
+def test_topology_normalized_resistance_bounds_scale_with_network_size():
+    c = cfg("capacitor")
+    p = PhysicalController(c)
+    p.synchronize({f"0:{i}":0 for i in range(511)})
+    resistance = p._resistances(sorted(p.nodes), {})
+    expected = 511 * c.discharge_time / c.capacitance
+    assert expected > c.resistance_max
+    assert np.allclose(resistance, expected)

@@ -64,7 +64,7 @@ class PhysicalController:
         current_scale=math.sqrt(magnetic_before/magnetic_raw) if magnetic_raw>1e-30 else 0.
         for i,state in enumerate(states):
             state["capacity"]=capacity;state["cooling"]=cooling
-            state["resistance"]=resistance;state["inductance"]=inductance
+            state["base_resistance"]=resistance;state["resistance"]=resistance;state["inductance"]=inductance
             state["temperature"]=cfg.ambient_temperature+deltas[i]*thermal_scale
             state["current"]=float(currents[i]*current_scale)
 
@@ -87,7 +87,7 @@ class PhysicalController:
                 cooling = nk * math.exp(float(self.rng.normal(0., cfg.heterogeneity)))
                 self.nodes[key] = {"tree": tree, "capacity": capacity, "cooling": cooling,
                                    "temperature": existing_mean if cfg.topology_normalization else cfg.initial_temperature, "current": 0.,
-                                   "resistance": nr, "inductance": nl, "heat": 0., "power": 0.,
+                                   "base_resistance": nr, "resistance": nr, "inductance": nl, "heat": 0., "power": 0.,
                                    "cooling_energy": 0., "inductive_energy": 0.}
                 self.birth_energy += capacity * (cfg.initial_temperature - cfg.ambient_temperature)
         self._recalibrate_topology(thermal_target, magnetic_target)
@@ -101,9 +101,13 @@ class PhysicalController:
 
     def _resistances(self, keys: list[str], observations: dict[str, Observation]) -> np.ndarray:
         cfg = self.config
+        baseline = np.asarray([
+            float(self.nodes[key].get("base_resistance", self.nodes[key].get("resistance", cfg.resistance)))
+            for key in keys
+        ], dtype=np.float64)
         result = []
         scale = max(1e-4, float(np.median([abs(o.utility) for o in observations.values()])) if observations else 1e-4)
-        for key in keys:
+        for index, key in enumerate(keys):
             observation = observations.get(key)
             if self.resistance_policy is not None and observation is not None:
                 resistance = float(self.resistance_policy(observation))
@@ -119,8 +123,14 @@ class PhysicalController:
                         log_multiplier = -min(4., observation.entropy + max(0., -observation.utility / scale))
                     elif cfg.allocation == "gradient":
                         log_multiplier = -min(4., observation.gradient_norm + observation.structural_gradient)
-                resistance = float(self.nodes[key].get("resistance", cfg.resistance)) * math.exp(log_multiplier)
-            result.append(np.clip(resistance, cfg.resistance_min, cfg.resistance_max))
+                resistance = baseline[index] * math.exp(log_multiplier)
+            if cfg.topology_normalization:
+                ratio_min = cfg.resistance_min / cfg.resistance
+                ratio_max = cfg.resistance_max / cfg.resistance
+                lower, upper = baseline[index] * ratio_min, baseline[index] * ratio_max
+            else:
+                lower, upper = cfg.resistance_min, cfg.resistance_max
+            result.append(np.clip(resistance, lower, upper))
         result = np.asarray(result, dtype=np.float64)
         trees = np.asarray([self.nodes[k]["tree"] for k in keys])
         if cfg.granularity == "global":
@@ -129,6 +139,7 @@ class PhysicalController:
             for tree in np.unique(trees):
                 mask = trees == tree
                 result[mask] = float(np.mean(result[mask]))
+        base_conductance = float((1. / baseline).sum())
         if cfg.hierarchical:
             conductance = 1. / result
             totals = []
@@ -137,11 +148,22 @@ class PhysicalController:
                 vals = conductance[trees == tree]
                 totals.append(float(vals.sum() if cfg.bottom_up else vals.mean()))
             total = sum(totals)
-            for tree, tree_total in zip(tree_ids, totals):
-                mask = trees == tree
-                # Fixed whole-network conductance budget 1 / base R.
-                conductance[mask] *= (tree_total / total / cfg.resistance) / conductance[mask].sum()
-            result = 1. / conductance
+            if total > 0:
+                for tree, tree_total in zip(tree_ids, totals):
+                    mask = trees == tree
+                    within = conductance[mask].sum()
+                    if within > 0:
+                        conductance[mask] *= (tree_total / total * base_conductance) / within
+                result = 1. / conductance
+        if cfg.topology_normalization:
+            # Allocation changes *where* electrical work is dissipated, not the
+            # whole network's discharge time. Re-normalize total conductance to
+            # the nominal topology-calibrated budget on every controller step.
+            conductance = 1. / result
+            total = float(conductance.sum())
+            if total > 0:
+                conductance *= base_conductance / total
+                result = 1. / conductance
         return result
 
     def _cool(self, temperature: np.ndarray, capacities: np.ndarray, cooling: np.ndarray) -> np.ndarray:
