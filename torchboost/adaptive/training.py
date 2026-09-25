@@ -146,6 +146,9 @@ class JointTrainer:
                 result = result + cfg.monotonicity_penalty * (torch.relu(-sign * gradient).square() * weights).sum() / weights.sum().clamp_min(1e-12)
         return result
 
+    def _needs_trace(self, values: dict) -> bool:
+        return bool(values.get("diversity", self.config.diversity))
+
     def _train_epoch(self, train: DataSplit, values: dict) -> None:
         self.model.train()
         cfg = self.config
@@ -165,7 +168,7 @@ class JointTrainer:
                 x, target = train.x[indices].to(cfg.device), train.y[indices].to(cfg.device)
                 if cfg.monotonicity and cfg.monotonicity_penalty:
                     x = x.detach().requires_grad_(True)
-                needs_trace = bool(values.get("diversity", cfg.diversity))
+                needs_trace = self._needs_trace(values)
                 forward = self.model(x, trace=needs_trace, generator=self.generator)
                 prediction, trace = forward if needs_trace else (forward, None)
                 primary = (self.objective.loss(prediction, target) * weights).sum() / total_weight
