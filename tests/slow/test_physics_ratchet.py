@@ -24,17 +24,17 @@ def test_topology_normalized_capacitor_retains_recurring_regime_gain():
     assert final_gain >= RATCHET["min_final_A_improvement"], (none, cap, final_gain)
 
 
-def test_deep_power_tree_512_mechanism_report():
+def test_deep_power_tree_2048_mechanism_report():
     """Report five-way stationary-task behavior without turning it into a ratchet."""
     import math
 
     from experiments.deep_physics_power_tree import run as run_deep
 
-    rows = [run_deep(kind, 71, 512) for kind in ("none", "plastic", "cap", "rlc", "full")]
-    print("DEEP512_REPORT=" + json.dumps(rows, sort_keys=True))
+    rows = [run_deep(kind, 71, 2048) for kind in ("none", "plastic", "cap", "rlc", "full")]
     assert all(math.isfinite(row["audit"]) and math.isfinite(row["last_audit"]) for row in rows)
     by_kind = {row["kind"]: row for row in rows}
     assert by_kind["none"]["injection"] == 0.
     assert by_kind["plastic"]["anchors"] > 0
     assert by_kind["cap"]["injection"] > 0
     assert by_kind["rlc"]["injection"] > 0
+    raise AssertionError("DEEP2048_REPORT=" + json.dumps(rows, sort_keys=True))
