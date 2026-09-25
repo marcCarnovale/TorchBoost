@@ -30,7 +30,7 @@ def test_epicycle_regularization_mechanism_report():
 
     from experiments.epicycle_regularization import run as run_epicycle
 
-    result = run(seed=17)
+    result = run_epicycle(seed=17)
     for variant in result["variants"]:
         for phase in ("initial", "final"):
             metrics = variant[phase]
