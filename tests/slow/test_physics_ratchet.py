@@ -22,3 +22,11 @@ def test_topology_normalized_capacitor_retains_recurring_regime_gain():
 
     assert regret_gain >= RATCHET["min_regret_improvement"], (none, cap, regret_gain)
     assert final_gain >= RATCHET["min_final_A_improvement"], (none, cap, final_gain)
+
+
+def test_recurring_regime_control_comparison_report():
+    import math
+
+    rows = [run(kind, 17, ["A", "B", "A", "B", "A"], 16) for kind in ("none", "plastic", "pulse", "cap", "rlc", "full")]
+    assert all(math.isfinite(row["current_regret_proxy"]) for row in rows)
+    raise AssertionError("CONTROL_COMPARISON_REPORT=" + json.dumps(rows, sort_keys=True))
