@@ -11,8 +11,10 @@ stage boundary. Production defaults are not changed.
 """
 from __future__ import annotations
 
+from copy import deepcopy
 import argparse
 import json
+import math
 import numpy as np
 from sklearn.metrics import log_loss
 
@@ -24,32 +26,67 @@ from torchboost.adaptive.unified_progressive import UnifiedProgressiveClassifier
 
 
 class DirectFeedbackController(PhysicalController):
-    """Loss-surprise -> normalized heat, with no electrical reservoir."""
+    """Loss-surprise -> normalized heat, with no electrical reservoir.
+
+    ``charge_gain`` and ``max_injection`` are interpreted as heat-source controls
+    in this experiment, not as electrical charge. The parent retains ownership
+    of cooling, temperature limiting, spatial aggregation, and step identity.
+    """
 
     def __init__(self, config, *, seed=0):
+        if config.mode != "cooling":
+            raise ValueError("direct feedback requires cooling mode, not a circuit")
         super().__init__(config, seed=seed)
         self.direct_heat_total = 0.0
 
     def advance(self, loss, observations, step):
+        # Validate/replay BEFORE any external heating. In particular, a repeated
+        # observation must return its stored record without heating a second time.
+        if not math.isfinite(loss) or step <= self.last_step or not self.nodes:
+            return super().advance(loss, observations, step)
         cfg = self.config
         direct = 0.0
         if self.reference is not None:
             direct = min(cfg.max_injection, cfg.charge_gain * max(0.0, loss - self.reference))
-        if direct > 0 and self.nodes:
-            keys = sorted(self.nodes)
+        keys = sorted(self.nodes)
+        additions = np.zeros(len(keys), dtype=float)
+        before_thermal = self.thermal_energy()
+        if direct > 0:
             resistance = self._resistances(keys, observations)
             conductance = 1.0 / resistance
-            weights = conductance / conductance.sum()
+            additions = direct * conductance / conductance.sum()
             capacities = np.asarray([self.nodes[k]["capacity"] for k in keys], dtype=float)
             for j, key in enumerate(keys):
                 self.nodes[key]["temperature"] = float(
-                    self.nodes[key]["temperature"] + direct * weights[j] / capacities[j]
+                    self.nodes[key]["temperature"] + additions[j] / capacities[j]
                 )
-            self.direct_heat_total += float(direct)
         out = super().advance(loss, observations, step)
+        self.direct_heat_total += float(direct)
+        # The parent's thermal_before was measured after our external source.
+        # Report the WHOLE step and include the source in its energy identity.
+        out["thermal_before"] = float(before_thermal)
         out["direct_heat_injection"] = float(direct)
         out["direct_heat_total"] = float(self.direct_heat_total)
-        return out
+        out["external_heat"] = float(direct)
+        out["energy_error"] = float(
+            out["electrical_after"] + out["thermal_after"]
+            - out["electrical_before"] - out["thermal_before"]
+            - out["source_work"] - out["spark_energy"] - out["external_heat"]
+            + out["cooling_energy"] + out["vented_energy"]
+        )
+        for key, addition in zip(keys, additions):
+            out["nodes"][key]["direct_heat"] = float(addition)
+        self.history[-1] = deepcopy(out)
+        return deepcopy(out)
+
+    def state_dict(self):
+        return {**super().state_dict(), "direct_heat_total": self.direct_heat_total}
+
+    def load_state_dict(self, value):
+        super().load_state_dict(value)
+        # Historical checkpoints lacked this field. Their physical state remains
+        # restorable, but an absent historical source total cannot be recovered.
+        self.direct_heat_total = float(value.get("direct_heat_total", 0.0))
 
 
 BASE_CFG = lr.cfg
