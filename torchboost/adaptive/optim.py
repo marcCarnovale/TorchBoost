@@ -33,8 +33,10 @@ class LocalMomentum(torch.optim.Optimizer):
             mode = group["mode"]
             energy = 0.
             if mode == "energy_momentum":
-                energy = .5 * sum(float(self.state[p]["momentum_buffer"].square().sum())
-                                   for p in group["params"] if "momentum_buffer" in self.state[p])
+                buffers = [self.state[p]["momentum_buffer"] for p in group["params"]
+                           if "momentum_buffer" in self.state[p]]
+                elements = sum(buffer.numel() for buffer in buffers)
+                energy = (.5 * sum(float(buffer.square().sum()) for buffer in buffers) / max(1, elements))
             elif mode == "circuit_momentum":
                 energy = max(0., group["inductive_energy"])
             beta = 0. if mode == "sgd" else group["beta"]
@@ -124,15 +126,20 @@ class DynamicOptimizer:
 
     def set_controls(self, learning_rate: float, physical_nodes: dict[str, dict]) -> None:
         self.base_lr = learning_rate
+        cfg = self.config.physics
+        node_count = max(1, len(physical_nodes))
+        thermal_scale = max(abs(cfg.thaw_temperature - cfg.ambient_temperature), 1e-12)
+        system_electrical_scale = max(cfg.max_charge ** 2 / (2 * cfg.capacitance), 1e-12)
+        local_electrical_scale = system_electrical_scale / node_count
         for group in self.optimizer.param_groups:
             state = physical_nodes.get(group["owner"])
             factor = 1.
-            if state is not None and self.config.physics.lr_coupling:
-                factor = min(4., max(.25, 1 + self.config.physics.lr_coupling *
-                                     (state["temperature"] - self.config.physics.initial_temperature)))
+            if state is not None and cfg.lr_coupling:
+                excursion = (state["temperature"] - cfg.ambient_temperature) / thermal_scale
+                factor = min(4., max(.25, 1 + cfg.lr_coupling * excursion))
             group["lr"] = learning_rate * factor
             if state is not None and self.config.optimizer == "circuit_momentum":
-                group["inductive_energy"] = state["inductive_energy"]
+                group["inductive_energy"] = max(0., state["inductive_energy"]) / local_electrical_scale
 
     def zero_grad(self) -> None:
         self.optimizer.zero_grad(set_to_none=True)

@@ -1,6 +1,10 @@
 
 import math
-from torchboost.adaptive.config import PhysicsConfig
+from types import SimpleNamespace
+
+import torch
+from torchboost.adaptive.config import ForestConfig, PhysicsConfig
+from torchboost.adaptive.optim import DynamicOptimizer, LocalMomentum
 from torchboost.adaptive.physics import PhysicalController
 
 def cfg(mode="rlc"):
@@ -34,3 +38,44 @@ def test_topology_recalibration_preserves_stored_energy():
 def test_neutral_temperature_does_not_change_routing_at_rest():
     c=cfg("capacitor")
     assert c.initial_temperature==c.ambient_temperature==1.
+
+def test_energy_momentum_is_invariant_to_parameter_count_for_equal_energy_density():
+    c = ForestConfig(optimizer="energy_momentum", momentum=.2, momentum_max=.9, momentum_energy_gain=1.)
+    p1 = torch.nn.Parameter(torch.zeros(2))
+    p2 = torch.nn.Parameter(torch.zeros(20))
+    a = LocalMomentum([{"params":[p1], "owner":"a"}], c)
+    b = LocalMomentum([{"params":[p2], "owner":"b"}], c)
+    a.state[p1]["momentum_buffer"] = torch.ones_like(p1)
+    b.state[p2]["momentum_buffer"] = torch.ones_like(p2)
+    p1.grad = torch.ones_like(p1)
+    p2.grad = torch.ones_like(p2)
+    a.step()
+    b.step()
+    assert math.isclose(a.param_groups[0]["last_beta"], b.param_groups[0]["last_beta"], rel_tol=1e-12)
+
+
+def _controlled_group(node_count, temperature, local_energy):
+    physics = cfg("rlc")
+    physics.max_charge = 2.
+    physics.thaw_temperature = 1.2
+    physics.lr_coupling = .5
+    forest_cfg = ForestConfig(optimizer="circuit_momentum", learning_rate=.1, physics=physics)
+    dynamic = DynamicOptimizer.__new__(DynamicOptimizer)
+    dynamic.config = forest_cfg
+    dynamic.optimizer = SimpleNamespace(param_groups=[{"owner":"focus"}])
+    nodes = {"focus":{"temperature":temperature, "inductive_energy":local_energy}}
+    for i in range(node_count - 1):
+        nodes[f"other:{i}"] = {"temperature":physics.ambient_temperature, "inductive_energy":0.}
+    dynamic.set_controls(.1, nodes)
+    return dynamic.optimizer.param_groups[0]
+
+
+def test_thermal_lr_coupling_uses_fraction_of_ambient_to_thaw_interval():
+    group = _controlled_group(2, 1.1, 0.)
+    assert math.isclose(group["lr"], .125, rel_tol=1e-12)
+
+
+def test_circuit_momentum_energy_scale_is_topology_invariant():
+    two = _controlled_group(2, 1., .5)
+    four = _controlled_group(4, 1., .25)
+    assert math.isclose(two["inductive_energy"], four["inductive_energy"], rel_tol=1e-12)
