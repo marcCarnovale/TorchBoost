@@ -6,6 +6,7 @@ quantile-binned, not claimed equivalent to CART or XGBoost's implementation.
 """
 from dataclasses import dataclass
 from copy import deepcopy
+import math
 import numpy as np
 import torch
 from scipy.special import expit, softmax
@@ -86,6 +87,13 @@ class BuilderConfig:
     linear_values: bool = False
     linear_l2: float = 10.
     honest_fraction: float = 0.
+    crossfit_folds: int = 0
+    crossfit_candidates: int = 8
+    samples_per_parameter: float = 0.
+    parameter_bags: int = 1
+    parameter_bag_fraction: float = 1.
+    crossfit_max_rows: int = 0
+    screen_max_rows: int = 0
 
 
 @torch.no_grad()
@@ -180,10 +188,13 @@ def build_tree(data, scores, task, tree_id, native, cfg, feature_mask, generator
 
 @torch.no_grad()
 def build_linear_model_tree(data, scores, task, tree_id, native, cfg, feature_mask, generator):
-    """Greedy hard model-tree proposal with regularized affine logistic leaves.
+    """Greedy affine model tree with optional cross-fitted structural selection.
 
-    This is intentionally a first-stage initializer: sklearn's logistic solver has
-    no per-example offset, so later additive stages should use ``build_tree``.
+    Candidate thresholds are screened cheaply, then (when ``crossfit_folds>=2``)
+    the strongest candidates are ranked by out-of-fold improvement. Child
+    experts are refit on all child rows only after a split has been selected.
+    Local ridge strength can increase automatically when rows-per-parameter is
+    small, reducing effective complexity in data-poor nodes.
     """
     if task != 'binary' or not cfg.linear_values:
         raise ValueError('linear model-tree proposal currently requires binary linear values')
@@ -192,53 +203,149 @@ def build_linear_model_tree(data, scores, task, tree_id, native, cfg, feature_ma
     temporary=deepcopy(native);temporary.structure.dynamic=True;temporary.structure.initial_depth=0;temporary.structure.arity=2
     tree=RaggedTree(tree_id,data.x.shape[1],scores.shape[1],temporary,generator);tree.config=native;tree.feature_mask.copy_(feature_mask)
     x=data.x.numpy().astype(np.float64);y=data.y.numpy().astype(int);w=data.weight.numpy().astype(np.float64)
-    columns=np.flatnonzero(feature_mask.numpy()); C=1/max(cfg.linear_l2,1e-8)
+    columns=np.flatnonzero(feature_mask.numpy())
     base=float(np.asarray(scores.numpy())[:,0].mean())
-    def fit(rows):
+    nparam=max(1,len(columns)+1)
+
+    def local_l2(rows):
+        if cfg.samples_per_parameter<=0:return cfg.linear_l2
+        scarcity=cfg.samples_per_parameter*nparam/max(1,len(rows))
+        return cfg.linear_l2*max(1.,scarcity)
+
+    def fit_once(rows):
         if len(np.unique(y[rows]))<2:
-            # Finite intercept for pure leaves, zero slopes.
-            p=(w[rows]*y[rows]).sum()/max(w[rows].sum(),1e-12);p=np.clip(p,1e-5,1-1e-5)
-            return np.r_[np.log(p/(1-p))-base,np.zeros(x.shape[1])]
-        m=LogisticRegression(C=C,max_iter=200,solver='lbfgs').fit(x[rows],y[rows],sample_weight=w[rows])
-        return np.r_[float(m.intercept_[0])-base,m.coef_[0]]
+            prob=(w[rows]*y[rows]).sum()/max(w[rows].sum(),1e-12);prob=np.clip(prob,1e-5,1-1e-5)
+            return np.r_[np.log(prob/(1-prob))-base,np.zeros(x.shape[1])]
+        l2=local_l2(rows); C=1/max(l2,1e-8)
+        m=LogisticRegression(C=C,max_iter=200,solver='lbfgs').fit(x[rows][:,columns],y[rows],sample_weight=w[rows])
+        beta=np.zeros(x.shape[1]+1);beta[0]=float(m.intercept_[0])-base;beta[1+columns]=m.coef_[0]
+        return beta
+
+    def fit(rows, final=False):
+        if not final or cfg.parameter_bags<=1 or cfg.parameter_bag_fraction>=1:
+            return fit_once(rows)
+        estimates=[]
+        size=max(2,int(math.ceil(len(rows)*cfg.parameter_bag_fraction)))
+        for _ in range(cfg.parameter_bags):
+            take=torch.randperm(len(rows),generator=generator).numpy()[:size]
+            estimates.append(fit_once(rows[take]))
+        return np.mean(estimates,axis=0)
+
     def loss(rows,beta):
-        z=base+beta[0]+x[rows]@beta[1:];p=1/(1+np.exp(-np.clip(z,-30,30)))
-        return log_loss(y[rows],np.c_[1-p,p],labels=[0,1],sample_weight=w[rows],normalize=False)
+        if not len(rows):return 0.
+        z=base+beta[0]+x[rows]@beta[1:];prob=1/(1+np.exp(-np.clip(z,-30,30)))
+        return log_loss(y[rows],np.c_[1-prob,prob],labels=[0,1],sample_weight=w[rows],normalize=False)
+
+    def candidate_gain(rows,j,th):
+        left=rows[x[rows,j]<=th];right=rows[x[rows,j]>th]
+        if min(len(left),len(right))<cfg.min_samples:return None
+        parent=fit(rows);bl,br=fit(left),fit(right)
+        return loss(rows,parent)-loss(left,bl)-loss(right,br)-cfg.split_cost
+
+    def newton_screen_gain(rows,j,th):
+        """Cheap conditional affine gain around the fitted parent expert."""
+        left=rows[x[rows,j]<=th];right=rows[x[rows,j]>th]
+        if min(len(left),len(right))<cfg.min_samples:return None
+        beta=fit(rows)
+        cols=np.r_[[-1],columns]  # -1 denotes intercept
+        xa=np.concatenate([np.ones((len(rows),1)),x[rows][:,columns]],axis=1)
+        score=base+beta[0]+x[rows]@beta[1:]
+        prob=1/(1+np.exp(-np.clip(score,-30,30)))
+        gg=(prob-y[rows])*w[rows];hh=np.maximum(prob*(1-prob),1e-5)*w[rows]
+        mask_left=x[rows,j]<=th
+        pen=np.eye(xa.shape[1]);pen[0,0]=0.
+        def gain(mask):
+            X=xa[mask];g=gg[mask];h=hh[mask]
+            H=X.T@(h[:,None]*X)+local_l2(rows[mask])*pen
+            G=X.T@g
+            try:return .5*float(G@np.linalg.solve(H,G))
+            except np.linalg.LinAlgError:return 0.
+        child=gain(mask_left)+gain(~mask_left)
+        # Parent is already IRLS-fitted, so its residual Newton gain is the
+        # appropriate baseline and is normally close to zero.
+        parent=gain(np.ones(len(rows),dtype=bool))
+        return child-parent-cfg.split_cost
+
+    def crossfit_gain(rows,j,th,folds):
+        # On very large nodes, use a reproducible cross-fit design subset for
+        # structural ranking, then refit the selected experts on all rows.
+        design_rows=rows
+        if cfg.crossfit_max_rows and len(rows)>cfg.crossfit_max_rows:
+            take=torch.randperm(len(rows),generator=generator).numpy()[:cfg.crossfit_max_rows]
+            design_rows=rows[take]
+        order=torch.randperm(len(design_rows),generator=generator).numpy()
+        fold_id=np.empty(len(design_rows),dtype=int);fold_id[order]=np.arange(len(design_rows))%folds
+        total=0.
+        for k in range(folds):
+            va=design_rows[fold_id==k];tr=design_rows[fold_id!=k]
+            lt=tr[x[tr,j]<=th];rt=tr[x[tr,j]>th]
+            lv=va[x[va,j]<=th];rv=va[x[va,j]>th]
+            minimum=max(2,cfg.min_samples//2)
+            if min(len(lt),len(rt),len(lv),len(rv))<minimum:return None
+            parent=fit(tr);bl,br=fit(lt),fit(rt)
+            total += loss(va,parent)-loss(lv,bl)-loss(rv,br)
+        return total-cfg.split_cost
+
     queue=[(tree.root_id,np.flatnonzero(w>0),np.zeros(x.shape[1]+1))];splits=[];leaves=[]
     while queue:
-        key,rows,parent=queue.pop(0);node=tree.get(key);beta=fit(rows)
+        key,rows,parent=queue.pop(0);node=tree.get(key);beta=fit(rows,final=True)
         local=beta-parent if cfg.readout=='residual' else beta
         node.value.copy_(torch.as_tensor([local[0]],dtype=node.value.dtype));node.linear_value.copy_(torch.as_tensor(local[1:,None],dtype=node.value.dtype))
-        best=None;base_loss=loss(rows,beta)
+        best=None
         if node.depth<cfg.depth and len(rows)>=2*cfg.min_samples:
-            if cfg.honest_fraction>0 and len(rows)>=4*cfg.min_samples:
+            # Legacy one-holdout mode remains for exact experimental comparison.
+            if cfg.honest_fraction>0 and cfg.crossfit_folds<2 and len(rows)>=4*cfg.min_samples:
                 order=torch.randperm(len(rows),generator=generator).numpy()
                 nv=max(2*cfg.min_samples,int(round(len(rows)*cfg.honest_fraction)))
                 valid_rows=rows[order[:nv]];fit_rows=rows[order[nv:]]
                 parent_fit=fit(fit_rows);base_eval=loss(valid_rows,parent_fit)
+                candidates=[]
+                for j in columns:
+                    for th in np.unique(np.quantile(x[fit_rows,j],np.linspace(.1,.9,max(2,min(cfg.bins,10))))):
+                        lf=fit_rows[x[fit_rows,j]<=th];rf=fit_rows[x[fit_rows,j]>th]
+                        lv=valid_rows[x[valid_rows,j]<=th];rv=valid_rows[x[valid_rows,j]>th]
+                        if min(len(lf),len(rf),len(lv),len(rv))<max(2,cfg.min_samples//2):continue
+                        gain=base_eval-loss(lv,fit(lf))-loss(rv,fit(rf))-cfg.split_cost
+                        candidates.append((gain,int(j),float(th)))
             else:
-                fit_rows=valid_rows=rows;parent_fit=beta;base_eval=base_loss
-            for j in columns:
-                cuts=np.unique(np.quantile(x[fit_rows,j],np.linspace(.1,.9,max(2,min(cfg.bins,10)))))
-                for th in cuts:
-                    left_fit=fit_rows[x[fit_rows,j]<=th];right_fit=fit_rows[x[fit_rows,j]>th]
-                    left=rows[x[rows,j]<=th];right=rows[x[rows,j]>th]
-                    if min(len(left_fit),len(right_fit),len(left),len(right))<cfg.min_samples:continue
-                    bl_fit,br_fit=fit(left_fit),fit(right_fit)
-                    lv=valid_rows[x[valid_rows,j]<=th];rv=valid_rows[x[valid_rows,j]>th]
-                    if len(lv)<max(2,cfg.min_samples//2) or len(rv)<max(2,cfg.min_samples//2):continue
-                    gain=base_eval-loss(lv,bl_fit)-loss(rv,br_fit)-cfg.split_cost
-                    if gain>1e-10 and (best is None or gain>best[0]):
-                        # Refit accepted child experts on all child rows for the actual proposal.
-                        best=(gain,int(j),float(th),left,right,fit(left),fit(right))
+                # Screen all thresholds in-sample; cross-fitting is spent only on
+                # the most plausible structural candidates.
+                candidates=[]
+                screen_rows=rows
+                if cfg.screen_max_rows and len(rows)>cfg.screen_max_rows:
+                    take=torch.randperm(len(rows),generator=generator).numpy()[:cfg.screen_max_rows]
+                    screen_rows=rows[take]
+                for j in columns:
+                    cuts=np.unique(np.quantile(x[screen_rows,j],np.linspace(.1,.9,max(2,min(cfg.bins,10)))))
+                    for th in cuts:
+                        gain=(newton_screen_gain(screen_rows,int(j),float(th)) if cfg.crossfit_folds>=2 else candidate_gain(screen_rows,int(j),float(th)))
+                        if gain is not None:candidates.append((gain,int(j),float(th)))
+                candidates.sort(reverse=True,key=lambda z:z[0])
+                candidates=candidates[:max(1,cfg.crossfit_candidates)]
+                if cfg.crossfit_folds>=2:
+                    rescored=[]
+                    folds=min(cfg.crossfit_folds,max(2,len(rows)//max(2,cfg.min_samples)))
+                    for _,j,th in candidates:
+                        gain=crossfit_gain(rows,j,th,folds)
+                        if gain is not None:rescored.append((gain,j,th))
+                    candidates=rescored
+            for gain,j,threshold in candidates:
+                if gain>1e-10 and (best is None or gain>best[0]):
+                    left=rows[x[rows,j]<=threshold];right=rows[x[rows,j]>threshold]
+                    best=(gain,j,threshold,left,right)
         if best is None:
-            leaves.append({'node_id':key,'rows':len(rows),'value':[float(beta[0])],'linear_norm':float(np.linalg.norm(beta[1:]))});continue
-        gain,j,threshold,left,right,bl,br=best;children=tree.grow(key,generator=generator,arity=2)
+            leaves.append({'node_id':key,'rows':len(rows),'value':[float(beta[0])],
+                           'linear_norm':float(np.linalg.norm(beta[1:])),
+                           'local_l2':float(local_l2(rows))});continue
+        gain,j,threshold,left,right=best;children=tree.grow(key,generator=generator,arity=2)
         node.routing_weight.zero_();node.routing_bias.zero_();node.routing_weight[0,j]=-cfg.strength/2;node.routing_weight[1,j]=cfg.strength/2
         node.routing_bias[0]=cfg.strength*threshold/2;node.routing_bias[1]=-cfg.strength*threshold/2
         queue.extend([(children[0],left,beta),(children[1],right,beta)])
-        splits.append({'node_id':key,'feature':j,'threshold':threshold,'gain':float(gain)})
-    return tree,{'splits':splits,'leaves':leaves,'features':columns.tolist(),'rows':int((w>0).sum()),'criterion':'regularized affine-logistic model-tree gain'}
+        splits.append({'node_id':key,'feature':j,'threshold':threshold,'gain':float(gain),
+                       'selection':'crossfit' if cfg.crossfit_folds>=2 else ('holdout' if cfg.honest_fraction>0 else 'in_sample')})
+    return tree,{'splits':splits,'leaves':leaves,'features':columns.tolist(),'rows':int((w>0).sum()),
+                 'criterion':'cross-fitted regularized affine-logistic model-tree gain' if cfg.crossfit_folds>=2 else 'regularized affine-logistic model-tree gain'}
+
 
 
 def _binary_nll(y, score, weight):

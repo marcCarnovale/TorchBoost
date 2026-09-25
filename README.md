@@ -42,6 +42,22 @@ oblique gate to one declared semantic feature group; singleton groups recover or
 and groups may overlap. This is intended for domain-informed or strongly evidenced feature groups,
 not indiscriminate rotation of all columns.
 
+
+## Data-adaptive experimental design
+
+Power-tree structural learning defaults to data-adaptive complexity control. On larger fitting sets,
+candidate splits can be screened cheaply, ranked by K-fold out-of-fold improvement, and then refit on
+all data. Final affine packets can be averaged across large parameter-estimation bags. Cross-fitting
+uses a capped design sample on very large nodes so structural validation does not make tree
+construction quadratic in data size.
+
+On smaller data, the same policy increases required rows per affine parameter, strengthens local
+ridge pressure, and reduces feasible depth. A single permanent holdout is not the default: it wastes
+scarce data and was empirically too conservative in development tests.
+
+This is separate from final model selection: controller, selection, ranking, and audit data remain
+distinct where the experiment protocol provides them.
+
 ## Adaptive mechanisms
 
 The native engine implements:

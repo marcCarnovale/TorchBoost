@@ -86,3 +86,58 @@ therefore retained as experimental and defaults to zero.
 Interpretation: the base-model gap is currently **proposal/generalization quality**, not insufficient
 training duration. The next statistical work should use cross-fitted or regularized model-tree split
 selection rather than relying on physics to rescue an overfit proposal.
+
+
+## Cross-fitted structural design and data-adaptive complexity
+
+The affine model-tree builder now separates **candidate screening**, **structural selection**, and
+**final parameter estimation**.
+
+For data-rich nodes:
+
+1. candidate thresholds are screened using a cheap conditional affine Newton gain;
+2. only the strongest candidates receive K-fold cross-fitted evaluation;
+3. structural cross-fitting can use a capped design sample for scalability;
+4. after the structure is selected, affine node parameters are estimated from multiple large bags
+   and averaged;
+5. the accepted differentiable tree is then trained on the full fitting set.
+
+For data-poor nodes, `auto_complexity=True` increases the minimum rows per affine parameter, increases
+ridge pressure locally, limits feasible depth, and can avoid cross-fitting when folds would be too
+small. Thus the model does not spend the same degrees of freedom at N=600 as at N=12,000.
+
+A soft information-criterion split cost remains in addition to cross-fitting. The single fixed holdout
+proposal remains available only as an experimental comparison; it was too conservative in the earlier
+small-data probe.
+
+### Scaling screen
+
+Fresh 16-feature context-dependent affine problem, one development seed per size, shallow diagnostic
+budget (depth 2, 16 differentiable updates):
+
+| fitting rows | in-sample proposal audit | auto design audit | CatBoost reference |
+|---:|---:|---:|---:|
+| 1,000 | 0.68807 | 0.68807 | 0.70675 |
+| 4,096 | 0.68232 | **0.68070** | 0.67593 |
+| 12,000 | 0.68600 | 0.68713 | **0.65820** |
+
+The shallow 12k model is under-capacity, not overfit. Increasing the same auto-designed single tree to
+depth 4 and training it for 512 updates changes the result materially.
+
+### Deep single-tree comparison
+
+At 12,000 fitting rows, depth 4, 512 updates:
+
+| seed | TorchBoost single tree audit | selected CatBoost reference audit |
+|---:|---:|---:|
+| 71 | **0.62449** | 0.65820 |
+| 72 | **0.61870** | 0.66114 |
+
+The CatBoost reference search here is bounded (depth 6/8, 256 trees, L2=20; selected by the separate
+selection split), not exhaustive. TorchBoost's best checkpoints are at updates 480 and 512,
+respectively. The result therefore supports continued long training of the deep single tree; it does
+not establish a broad best-in-class claim.
+
+The important design conclusion is that **experimental design and model capacity must scale together**:
+cross-fitting/bagging alone cannot rescue an under-capacity shallow tree, while deep flexible trees on
+small data need stronger automatic complexity control.

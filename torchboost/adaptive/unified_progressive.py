@@ -56,6 +56,14 @@ class UnifiedConfig:
     linear_values: bool = False
     linear_l2: float = 10.
     proposal_holdout: float = 0.
+    proposal_folds: int = 0
+    proposal_candidates: int = 8
+    samples_per_parameter: float = 0.
+    parameter_bags: int = 1
+    parameter_bag_fraction: float = 1.
+    proposal_crossfit_max_rows: int = 0
+    proposal_screen_max_rows: int = 0
+    auto_complexity: bool = True
     proposal_mode: str = 'hist_newton'  # hist_newton / linear_model_tree / grouped_oblique
     feature_groups: tuple[tuple[int,...], ...] = ()
     grouped_gate_l2: float = 1.
@@ -94,6 +102,13 @@ class UnifiedConfig:
             if not math.isfinite(getattr(self,k)) or getattr(self,k)<=0:raise ValueError(f'invalid {k}')
         if not math.isfinite(self.age_decay) or not 0<=self.age_decay<=1:raise ValueError('invalid age_decay')
         if not 0<=self.proposal_holdout<.5:raise ValueError('proposal_holdout must lie in [0,.5)')
+        if not isinstance(self.proposal_folds,int) or self.proposal_folds<0 or self.proposal_folds==1:raise ValueError('proposal_folds must be 0 or >=2')
+        if not isinstance(self.proposal_candidates,int) or self.proposal_candidates<1:raise ValueError('proposal_candidates must be positive')
+        if not math.isfinite(self.samples_per_parameter) or self.samples_per_parameter<0:raise ValueError('samples_per_parameter must be nonnegative')
+        if not isinstance(self.parameter_bags,int) or self.parameter_bags<1:raise ValueError('parameter_bags must be positive')
+        if not math.isfinite(self.parameter_bag_fraction) or not 0<self.parameter_bag_fraction<=1:raise ValueError('parameter_bag_fraction must lie in (0,1]')
+        if not isinstance(self.proposal_crossfit_max_rows,int) or self.proposal_crossfit_max_rows<0:raise ValueError('proposal_crossfit_max_rows must be nonnegative')
+        if not isinstance(self.proposal_screen_max_rows,int) or self.proposal_screen_max_rows<0:raise ValueError('proposal_screen_max_rows must be nonnegative')
         if self.depth>self.native.structure.max_depth:raise ValueError('proposal depth exceeds native budget')
         self.native.node_linear_values=self.linear_values
         if self.readout not in ('leaf','residual') or self.gate_release not in ('hard','threshold','oblique'):raise ValueError('invalid tree mode')
@@ -336,12 +351,38 @@ class UnifiedTrainer(JointTrainer):
             mask=torch.zeros(self.model.input_dim);mask[subset]=1.
             self.sampling_history.append({'stage':tree_id,'rows':pool.tolist(),'features':subset.tolist()})
             ds=DataSplit(train.x[pool],train.y[pool],train.weight[pool]);scores=self.logits(ds)
-            bcfg=BuilderConfig(pc.depth,pc.bins,pc.min_samples_leaf,pc.min_child_weight,pc.newton_l2,pc.split_cost,pc.max_delta,pc.cart_strength,pc.readout,pc.linear_values,pc.linear_l2,pc.proposal_holdout)
+            proposal_depth=pc.depth;proposal_min_samples=pc.min_samples_leaf;proposal_split_cost=pc.split_cost
+            proposal_folds=pc.proposal_folds;proposal_spp=pc.samples_per_parameter
+            proposal_bags=pc.parameter_bags;proposal_bag_fraction=pc.parameter_bag_fraction;proposal_crossfit_max=pc.proposal_crossfit_max_rows;proposal_screen_max=pc.proposal_screen_max_rows
+            if pc.auto_complexity and pc.linear_values:
+                # Data-rich nodes can afford flexible experts and cross-fitted
+                # structural selection. Data-poor nodes receive stronger ridge,
+                # larger leaves, and a shallower feasible tree automatically.
+                active=max(1,int(mask.sum().item())); nfit=len(ds.x)
+                proposal_spp=max(proposal_spp,2.)
+                proposal_min_samples=max(proposal_min_samples,int(math.ceil(proposal_spp*(active+1))))
+                feasible=max(0,int(math.floor(math.log2(max(1,nfit/(2*proposal_min_samples))))))
+                proposal_depth=min(proposal_depth,feasible)
+                if proposal_folds==0 and nfit>=max(1500,6*proposal_min_samples):
+                    proposal_folds=5 if nfit>=20000 else 3
+                if nfit>=2000:
+                    proposal_bags=max(proposal_bags,3);proposal_bag_fraction=min(proposal_bag_fraction,.8)
+                    if proposal_crossfit_max==0:proposal_crossfit_max=6000
+                    if proposal_screen_max==0:proposal_screen_max=2500
+                # Soft information-criterion pressure; cross-fitting already
+                # supplies most of the structural generalization penalty.
+                proposal_split_cost=max(proposal_split_cost,.05*(active+2)*math.log(max(nfit,2)))
+            bcfg=BuilderConfig(proposal_depth,pc.bins,proposal_min_samples,pc.min_child_weight,pc.newton_l2,proposal_split_cost,pc.max_delta,pc.cart_strength,pc.readout,pc.linear_values,pc.linear_l2,pc.proposal_holdout,proposal_folds,pc.proposal_candidates,proposal_spp,proposal_bags,proposal_bag_fraction,proposal_crossfit_max,proposal_screen_max)
             if pc.proposal_mode=='grouped_oblique' and tree_id==0:
                 tree,record=build_grouped_oblique_model_tree(ds,scores,self.objective.task,tree_id,self.config,bcfg,mask,self.generator,pc.feature_groups,pc.grouped_gate_l2,pc.grouped_gate_starts,pc.grouped_gate_steps)
             else:
                 builder=build_linear_model_tree if pc.proposal_mode=='linear_model_tree' and tree_id==0 else build_tree
                 tree,record=builder(ds,scores,self.objective.task,tree_id,self.config,bcfg,mask,self.generator)
+            record["resolved_design"]={"depth":proposal_depth,"min_samples":proposal_min_samples,
+                "split_cost":proposal_split_cost,"crossfit_folds":proposal_folds,
+                "samples_per_parameter":proposal_spp,"parameter_bags":proposal_bags,
+                 "parameter_bag_fraction":proposal_bag_fraction,"crossfit_max_rows":proposal_crossfit_max,"screen_max_rows":proposal_screen_max,
+                "fit_rows":len(ds.x),"active_features":int(mask.sum().item())}
             tree.force_hard=pc.warm_value_updates>0 or pc.gate_release=='hard'
             with torch.no_grad():
                 previous=self.logits(train);direction=torch.cat([tree(b,hard=tree.force_hard)[0] for b in train.x.split(2048)])
