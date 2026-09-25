@@ -38,7 +38,7 @@ class ForestTrace:
 
 class ResidualNode(nn.Module):
     def __init__(self, node_id: str, tree_id: int, depth: int, input_dim: int,
-                 output_dim: int, temperature: float):
+                 output_dim: int, temperature: float, linear_values: bool = False):
         super().__init__()
         self.node_id, self.tree_id, self.depth = node_id, tree_id, depth
         self.input_dim, self.output_dim = input_dim, output_dim
@@ -48,6 +48,7 @@ class ResidualNode(nn.Module):
         self.frozen = False
         self.locked = False
         self.value = nn.Parameter(torch.zeros(output_dim))
+        self.linear_value = nn.Parameter(torch.zeros(input_dim, output_dim), requires_grad=linear_values) if linear_values else None
         self.register_parameter("routing_weight", None)
         self.register_parameter("routing_bias", None)
         self.register_parameter("structural", None)
@@ -130,7 +131,7 @@ class RaggedTree(nn.Module):
             node_id = f"{self.tree_id}:{self.next_id}"
             self.next_id += 1
         node = ResidualNode(node_id, self.tree_id, depth, self.input_dim, self.output_dim,
-                            self.config.physics.initial_temperature)
+                            self.config.physics.initial_temperature, self.config.node_linear_values)
         node.to(device=self.depth_logits.device, dtype=self.depth_logits.dtype)
         self.nodes[self._key(node_id)] = node
         return node
@@ -203,6 +204,7 @@ class RaggedTree(nn.Module):
         if node.locked:
             raise ValueError("a locked node cannot be reinitialized")
         node.value.zero_()
+        if node.linear_value is not None: node.linear_value.zero_()
         if node.routing_weight is not None:
             new = torch.randn(node.routing_weight.shape, generator=generator) / math.sqrt(self.input_dim)
             node.routing_weight.copy_(new.to(node.value))
@@ -226,6 +228,7 @@ class RaggedTree(nn.Module):
             if not node.active or key in disabled_nodes:
                 return x.new_zeros((len(x), self.output_dim))
             value = node.value.expand(len(x), -1)
+            if node.linear_value is not None: value = value + x @ node.linear_value
             refinement = torch.zeros_like(value)
             probabilities = None
             if not node.is_leaf and key not in disabled_refinements:
@@ -257,7 +260,9 @@ class RaggedTree(nn.Module):
             node = self.get(key)
             if not len(indices) or not node.active or key in disabled_nodes:
                 continue
-            result = result.index_add(0, indices, node.value.expand(len(indices), -1))
+            local = node.value.expand(len(indices), -1)
+            if node.linear_value is not None: local = local + x[indices] @ node.linear_value
+            result = result.index_add(0, indices, local)
             if node.is_leaf or key in disabled_refinements or float(node.gate(hard=True)) == 0.:
                 continue
             score = x[indices] @ node.routing_weight.T + node.routing_bias
@@ -290,7 +295,13 @@ class RaggedTree(nn.Module):
                 continue
             reached.extend(nodes)
             mass = torch.stack([reaches[n.node_id] for n in nodes], 1)
-            output = output + mass @ torch.stack([n.value for n in nodes])
+            values = torch.stack([n.value for n in nodes])
+            if nodes[0].linear_value is None:
+                output = output + mass @ values
+            else:
+                linear = torch.stack([n.linear_value for n in nodes])
+                local = values[None,:,:] + torch.einsum("nd,kdo->nko", x, linear)
+                output = output + (mass[...,None] * local).sum(1)
             groups: dict[int, list[ResidualNode]] = {}
             for node in nodes:
                 if not node.is_leaf and node.node_id not in disabled_refinements:
@@ -406,7 +417,7 @@ class AdaptiveForest(nn.Module):
         if self.training and self.feature_dropout:
             mask = torch.rand(x.shape, generator=generator, device="cpu").to(x.device) >= self.feature_dropout
             x = x * mask / (1. - self.feature_dropout)
-        if self.config.execution == "forest_packed" and not hard and not any(getattr(t, "force_hard", False) for t in self.trees):
+        if self.config.execution == "forest_packed" and not self.config.node_linear_values and not hard and not any(getattr(t, "force_hard", False) for t in self.trees):
             from .forest_packed import forest_packed_forward
             results = forest_packed_forward(self, x, trace=trace, disabled_nodes=disabled_nodes,
                                             disabled_refinements=disabled_refinements,
