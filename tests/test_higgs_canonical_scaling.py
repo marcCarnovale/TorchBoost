@@ -1,6 +1,12 @@
 from experiments.higgs_canonical_scaling import (
-    AUDIT_START, CANONICAL_TRAIN_STOP, LOW_FEATURES, TOTAL_ROWS, TRAIN_POOL_STOP,
-    SELECTION_ROWS, RANKING_ROWS, smoke,
+    AUDIT_START,
+    CANONICAL_TRAIN_STOP,
+    LOW_FEATURES,
+    RANKING_ROWS,
+    SELECTION_ROWS,
+    TOTAL_ROWS,
+    TRAIN_POOL_STOP,
+    smoke,
 )
 
 
