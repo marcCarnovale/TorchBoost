@@ -23,10 +23,49 @@ class DataSplit:
 
 
 def check_x(x) -> np.ndarray:
-    value = np.asarray(x, dtype=np.float64)
+    """Validate numeric 2D input without gratuitously widening float32 arrays.
+
+    Large tabular studies routinely exceed millions of rows.  Preserving an
+    existing float32 backing array avoids a full-size float64 copy; statistics
+    are still accumulated in float64 below.
+    """
+    value = np.asarray(x)
     if value.ndim != 2 or min(value.shape) < 1:
         raise ValueError("X must be a nonempty 2D numeric array")
+    if value.dtype.kind not in "f":
+        try:
+            value = np.asarray(value, dtype=np.float64)
+        except (TypeError, ValueError) as error:
+            raise ValueError("X must be a nonempty 2D numeric array") from error
+    elif value.dtype == np.float16:
+        value = value.astype(np.float32)
     return value
+
+
+def _feature_statistics(x: np.ndarray, weights: np.ndarray, chunk_size: int = 262_144):
+    """Weighted mean/scale with bounded temporary memory and float64 reduction."""
+    n, d = x.shape
+    mass = np.zeros(d, dtype=np.float64)
+    total = np.zeros(d, dtype=np.float64)
+    for start in range(0, n, chunk_size):
+        stop = min(n, start + chunk_size)
+        block = np.asarray(x[start:stop], dtype=np.float64)
+        finite = np.isfinite(block)
+        weight = weights[start:stop, None]
+        mass += (finite * weight).sum(axis=0, dtype=np.float64)
+        total += (np.where(finite, block, 0.0) * weight).sum(axis=0, dtype=np.float64)
+    mean = total / np.maximum(mass, 1e-12)
+
+    second = np.zeros(d, dtype=np.float64)
+    for start in range(0, n, chunk_size):
+        stop = min(n, start + chunk_size)
+        block = np.asarray(x[start:stop], dtype=np.float64)
+        finite = np.isfinite(block)
+        difference = np.where(finite, block - mean, 0.0)
+        second += ((difference**2) * weights[start:stop, None]).sum(axis=0, dtype=np.float64)
+    variance = second / np.maximum(mass, 1e-12)
+    scale = np.where(variance > 1e-12, np.sqrt(variance), 1.0)
+    return mean, scale
 
 
 def sample_weights(weight, n: int) -> np.ndarray:
@@ -49,12 +88,7 @@ class Preprocessor:
 
     def fit(self, x, y, *, classification: bool, weights: np.ndarray) -> None:
         x = check_x(x)
-        finite = np.isfinite(x)
-        counts = (finite * weights[:, None]).sum(0)
-        self.mean = (np.where(finite, x, 0.) * weights[:, None]).sum(0) / np.maximum(counts, 1e-12)
-        difference = np.where(finite, x - self.mean, 0.)
-        variance = (difference**2 * weights[:, None]).sum(0) / np.maximum(counts, 1e-12)
-        self.scale = np.where(variance > 1e-12, np.sqrt(variance), 1.)
+        self.mean, self.scale = _feature_statistics(x, weights)
         if not np.isfinite(self.mean).all() or not np.isfinite(self.scale).all():
             raise ValueError("feature statistics overflowed float64; rescale input units")
         y = np.asarray(y)
@@ -89,23 +123,34 @@ class Preprocessor:
         x = check_x(x)
         if x.shape[1] != len(self.mean):
             raise ValueError("feature count mismatch")
-        result = (np.where(np.isfinite(x), x, self.mean) - self.mean) / self.scale
-        # No arbitrary clipping: overflow is an explicit data/numerics error.
-        if not np.isfinite(result).all() or np.max(np.abs(result)) > np.finfo(np.float32).max:
-            raise ValueError("transformed features are outside finite float32 range")
-        return torch.from_numpy(np.ascontiguousarray(result, dtype=np.float32))
+        result = np.empty(x.shape, dtype=np.float32)
+        chunk_size = 262_144
+        for start in range(0, len(x), chunk_size):
+            stop = min(len(x), start + chunk_size)
+            block = np.asarray(x[start:stop], dtype=np.float64)
+            transformed = (np.where(np.isfinite(block), block, self.mean) - self.mean) / self.scale
+            # No arbitrary clipping: overflow is an explicit data/numerics error.
+            if (
+                not np.isfinite(transformed).all()
+                or np.max(np.abs(transformed)) > np.finfo(np.float32).max
+            ):
+                raise ValueError("transformed features are outside finite float32 range")
+            result[start:stop] = transformed
+        return torch.from_numpy(result)
 
     def transform_y(self, y) -> Tensor:
         value = np.asarray(y)
         if self.classes is not None:
             if value.ndim != 1:
                 raise ValueError("classification labels must be 1D")
-            mapping = {v: i for i, v in enumerate(self.classes.tolist())}
             try:
-                encoded = np.asarray([mapping[v] for v in value.tolist()], dtype=np.int64)
-            except (KeyError, TypeError) as error:
+                encoded = np.searchsorted(self.classes, value)
+                safe = np.minimum(encoded, len(self.classes) - 1)
+                if np.any(encoded >= len(self.classes)) or not np.all(self.classes[safe] == value):
+                    raise ValueError("target contains a class absent from training")
+            except (TypeError, ValueError) as error:
                 raise ValueError("target contains a class absent from training") from error
-            return torch.from_numpy(encoded)
+            return torch.from_numpy(np.asarray(encoded, dtype=np.int64))
         value = np.asarray(value, dtype=np.float64)
         if value.ndim == 1:
             value = value[:, None]
