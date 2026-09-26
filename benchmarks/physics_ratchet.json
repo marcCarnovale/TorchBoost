@@ -1,13 +1,17 @@
 {
   "protocol": "recurring_A_B_A_B_A_v1",
+  "status": "historical_superseded",
   "seed": 17,
   "updates_per_stage": 16,
   "reported_no_control_regret_proxy": 3.4801830280587844,
   "reported_capacitor_regret_proxy": 3.3775119364811124,
   "reported_no_control_final_A_nll": 0.7390458411765028,
   "reported_capacitor_final_A_nll": 0.6766447572609896,
-  "min_regret_improvement": 0.02,
-  "min_final_A_improvement": 0.06,
+  "historical_min_regret_improvement": 0.02,
+  "historical_min_final_A_improvement": 0.06,
   "replication_note": "A second development seed (29) also improved: regret 3.57359 to 3.51441 and final-A NLL 0.76862 to 0.72741.",
-  "note": "Neutral-temperature, topology-normalized capacitor. Tighten after stronger replicated results; do not loosen to pass CI."
+  "superseded_by_commit": "5c72cbff",
+  "supersession_reason": "The recorded performance predates the topology-normalization correction that makes discharge preserve whole-network conductance. The old performance threshold therefore belongs to different controller dynamics and must not gate the corrected implementation.",
+  "replacement_evidence": "Use the normalized-energy recurring campaign with development selection and fresh confirmation seeds; do not lower this historical threshold to fit the corrected implementation.",
+  "note": "Historical result preserved for provenance. Do not restore the old node-count-dependent discharge behavior merely to recover this number."
 }
