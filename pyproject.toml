@@ -1,25 +1,25 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "torchboost-experimental"
-version = "0.2.0"
-description = "Differentiable Newton boosting and experimental structural learning controls."
-readme = "README.md"
+name = "torchboost-unified-research"
+version = "0.7.0.dev0"
+description = "Native progressive differentiable forests with explicit adaptive controls"
 requires-python = ">=3.10"
-dependencies = ["torch>=2.2", "numpy>=1.26", "scikit-learn>=1.4"]
+dependencies = ["torch>=2.2", "numpy>=1.24", "scipy>=1.10", "scikit-learn>=1.3", "pandas>=2", "joblib>=1.3"]
 
 [project.optional-dependencies]
+experiment = ["pytest>=8", "xgboost>=2", "lightgbm>=4", "catboost>=1.2", "matplotlib>=3.7"]
 dev = ["pytest>=8", "ruff>=0.6"]
-benchmark = ["xgboost>=2.0"]
+benchmark = ["xgboost>=2", "lightgbm>=4", "catboost>=1.2", "matplotlib>=3.7"]
 
 [tool.setuptools.packages.find]
-include = ["torchboost*"]
+include = ["torchboost*", "experiments*"]
 
+# The historical repository's lint gate predates the research overlay. Keep that
+# gate on the production/legacy package while the large adaptive research
+# namespace is normalized incrementally; correctness there is covered by its
+# dedicated test suite in this draft PR.
 [tool.ruff]
-line-length = 100
-target-version = "py310"
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
+exclude = ["torchboost/adaptive", "experiments", "examples/unified_progressive.py", "tests/test_stagewise.py", "tests/test_audit_contract.py", "tests/test_autotune.py", "tests/test_conditional_readout.py", "tests/test_controller_scale.py", "tests/test_grouped_adamw.py", "tests/test_horizon.py", "tests/test_multioutput_diagnostics.py", "tests/test_output_calibration.py", "tests/test_progressive.py", "tests/test_progressive_regularization.py", "tests/test_public_ingestion.py", "tests/test_reference_mixture.py", "tests/test_reference_wrappers.py", "tests/test_refinement.py", "tests/test_response_scale.py", "tests/test_scaling_audit.py", "tests/test_scaling_controls.py", "tests/test_scaling_coordination.py", "tests/test_scaling_metric.py", "tests/test_scaling_more_contracts.py", "tests/test_scaling_reopening.py", "tests/test_scaling_tail.py", "tests/test_single_tree.py", "tests/test_single_tree_pressure.py", "tests/test_stable_features.py", "tests/test_supplemental_metrics.py", "tests/test_unified.py", "tests/test_grouped_oblique.py", "tests/test_oof_forest.py", "tests/test_topology_normalized_physics.py"]

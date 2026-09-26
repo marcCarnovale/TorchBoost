@@ -1,0 +1,343 @@
+{
+  "baseline_commit": "0c8a229fa5f822868ff4f5fffceaac78e760b611",
+  "local_protocol": {
+    "audit": 2400,
+    "audit_evaluated": false,
+    "config_and_trace_location": "Full downloadable raw capsule; exact original result SHA256 above.",
+    "control": 768,
+    "ntrain": 16000,
+    "phase_updates": 512,
+    "phases": 3,
+    "ranking": 1200,
+    "selection": 1200,
+    "source_rate": 0.5,
+    "stiffness": 0.1,
+    "warm_updates": 256,
+    "yield_strain": 0.02
+  },
+  "local_runs": {
+    "development-recurring-211.json": {
+      "arms": {
+        "capacitor": {
+          "blocked_release_events": 2447,
+          "max_yield_ratio": 17.98967093718722,
+          "ranking_trajectory_nll": 0.573236326376597,
+          "yield_events": 10
+        },
+        "direct": {
+          "blocked_release_events": 2448,
+          "max_yield_ratio": 17.76052181035447,
+          "ranking_trajectory_nll": 0.5732407247026762,
+          "yield_events": 10
+        },
+        "none": {
+          "blocked_release_events": 0,
+          "max_yield_ratio": 0.0,
+          "ranking_trajectory_nll": 0.5736902306477228,
+          "yield_events": 0
+        },
+        "plastic": {
+          "blocked_release_events": 2438,
+          "max_yield_ratio": 12.117467234609189,
+          "ranking_trajectory_nll": 0.5732155491908392,
+          "yield_events": 10
+        },
+        "rlc": {
+          "blocked_release_events": 2446,
+          "max_yield_ratio": 18.79784277478845,
+          "ranking_trajectory_nll": 0.5732336640357971,
+          "yield_events": 10
+        }
+      },
+      "environment": {
+        "numpy": "2.3.5",
+        "python": "3.13.5",
+        "sklearn": "1.8.0",
+        "torch": "2.10.0+cpu"
+      },
+      "executed_driver_sha256": "73dcf57fa226beffd208301251349ac4b14c9f5191fcc03dd31fe9360ee8bde7",
+      "raw_sha256": "cfe9f4189ee48e678cd500baaf217624afb2592924e690a07b686e3d58d98a2e",
+      "regime": "recurring",
+      "release_policy": "persistent_harm (v1 default)",
+      "seed": 211,
+      "warm_model": {
+        "actual_max_depth": 5,
+        "nodes": 21,
+        "trees": 1
+      }
+    },
+    "development-stationary-211.json": {
+      "arms": {
+        "capacitor": {
+          "blocked_release_events": 3108,
+          "max_yield_ratio": 27.977910835601985,
+          "ranking_trajectory_nll": 0.5730646178126335,
+          "yield_events": 1
+        },
+        "direct": {
+          "blocked_release_events": 3109,
+          "max_yield_ratio": 29.035386431348897,
+          "ranking_trajectory_nll": 0.573063870271047,
+          "yield_events": 1
+        },
+        "none": {
+          "blocked_release_events": 0,
+          "max_yield_ratio": 0.0,
+          "ranking_trajectory_nll": 0.5741563389698664,
+          "yield_events": 0
+        },
+        "plastic": {
+          "blocked_release_events": 3102,
+          "max_yield_ratio": 10.603998702622684,
+          "ranking_trajectory_nll": 0.5731398612260818,
+          "yield_events": 1
+        },
+        "rlc": {
+          "blocked_release_events": 3108,
+          "max_yield_ratio": 28.39073366251166,
+          "ranking_trajectory_nll": 0.5730658570925394,
+          "yield_events": 1
+        }
+      },
+      "environment": {
+        "numpy": "2.3.5",
+        "python": "3.13.5",
+        "sklearn": "1.8.0",
+        "torch": "2.10.0+cpu"
+      },
+      "executed_driver_sha256": "73dcf57fa226beffd208301251349ac4b14c9f5191fcc03dd31fe9360ee8bde7",
+      "raw_sha256": "8d2d15ad105f4e65a2d963a5fc8c17f736a217b210f4426b0bc9ce8aae085a41",
+      "regime": "stationary",
+      "release_policy": "persistent_harm (v1 default)",
+      "seed": 211,
+      "warm_model": {
+        "actual_max_depth": 5,
+        "nodes": 21,
+        "trees": 1
+      }
+    },
+    "development-stress-recurring-211.json": {
+      "arms": {
+        "capacitor": {
+          "blocked_release_events": 0,
+          "max_yield_ratio": 2.921199356815703,
+          "ranking_trajectory_nll": 0.5736278345187505,
+          "yield_events": 2430
+        },
+        "direct": {
+          "blocked_release_events": 0,
+          "max_yield_ratio": 3.2775484630794423,
+          "ranking_trajectory_nll": 0.5736432845393816,
+          "yield_events": 2768
+        },
+        "none": {
+          "blocked_release_events": 0,
+          "max_yield_ratio": 0.0,
+          "ranking_trajectory_nll": 0.5736902306477228,
+          "yield_events": 0
+        },
+        "plastic": {
+          "blocked_release_events": 0,
+          "max_yield_ratio": 2.914473891179004,
+          "ranking_trajectory_nll": 0.5735409234960874,
+          "yield_events": 3250
+        },
+        "rlc": {
+          "blocked_release_events": 0,
+          "max_yield_ratio": 2.9061786455558725,
+          "ranking_trajectory_nll": 0.5736280009150505,
+          "yield_events": 2657
+        }
+      },
+      "environment": {
+        "numpy": "2.3.5",
+        "python": "3.13.5",
+        "sklearn": "1.8.0",
+        "torch": "2.10.0+cpu"
+      },
+      "executed_driver_sha256": "4c1bff7167b8775fa1080d11a5cb78b1e49f3fa2d48badbdf43d337259faf4ee",
+      "raw_sha256": "3dd8fb37265b7921a554cf3bcbb76e0317d45ffd742a813ca6ee8bf0a3ba4e31",
+      "regime": "recurring",
+      "release_policy": "stress",
+      "seed": 211,
+      "warm_model": {
+        "actual_max_depth": 5,
+        "nodes": 21,
+        "trees": 1
+      }
+    },
+    "development-stress-stationary-211.json": {
+      "arms": {
+        "capacitor": {
+          "blocked_release_events": 0,
+          "max_yield_ratio": 2.429771274175197,
+          "ranking_trajectory_nll": 0.5737492144107819,
+          "yield_events": 3036
+        },
+        "direct": {
+          "blocked_release_events": 0,
+          "max_yield_ratio": 2.5190818324205018,
+          "ranking_trajectory_nll": 0.573753796517849,
+          "yield_events": 3017
+        },
+        "none": {
+          "blocked_release_events": 0,
+          "max_yield_ratio": 0.0,
+          "ranking_trajectory_nll": 0.5741563389698664,
+          "yield_events": 0
+        },
+        "plastic": {
+          "blocked_release_events": 0,
+          "max_yield_ratio": 2.2210466125806305,
+          "ranking_trajectory_nll": 0.5736953467130661,
+          "yield_events": 3077
+        },
+        "rlc": {
+          "blocked_release_events": 0,
+          "max_yield_ratio": 2.4733022629983976,
+          "ranking_trajectory_nll": 0.5737474411725998,
+          "yield_events": 3018
+        }
+      },
+      "environment": {
+        "numpy": "2.3.5",
+        "python": "3.13.5",
+        "sklearn": "1.8.0",
+        "torch": "2.10.0+cpu"
+      },
+      "executed_driver_sha256": "4c1bff7167b8775fa1080d11a5cb78b1e49f3fa2d48badbdf43d337259faf4ee",
+      "raw_sha256": "1de89c31efab6be0efc826e6757824f071f5d3a8a524b14f8bd3ed972a5affee",
+      "regime": "stationary",
+      "release_policy": "stress",
+      "seed": 211,
+      "warm_model": {
+        "actual_max_depth": 5,
+        "nodes": 21,
+        "trees": 1
+      }
+    }
+  },
+  "prior_actions": {
+    "covtype-depth-screen": {
+      "archive_sha256": "c4a6577eb997e7f0fd020f100e3a2522248b9df588b80cba5cede2fd10b61224",
+      "audit_evaluated": false,
+      "catboost_ranking_choice": {
+        "depth": 12,
+        "max_iterations": 2048,
+        "ranking_nll": 0.15209354390801855,
+        "retained_trees": 2048,
+        "seconds": 323.51348255999983,
+        "selection_nll": 0.1444214525461835
+      },
+      "rows": {
+        "audit": 20000,
+        "control": 10000,
+        "ranking": 10000,
+        "selection": 10000,
+        "train": 80000
+      },
+      "seed": 59,
+      "torchboost_ranking_choice": {
+        "configured_total_updates": 768,
+        "depth": 5,
+        "ranking_nll": 0.3240875005722046,
+        "retained_trees": 20,
+        "seconds": 115.20114238599996,
+        "selection_nll": 0.3204944431781769,
+        "stage_updates": 32,
+        "trees": 24
+      }
+    },
+    "native-forest-67": {
+      "archive_sha256": "2a30575a3d6974179dbad565d0e8b33a4e7820c2f7999ce6bb5a4b90703159c9",
+      "branch_selection": {
+        "accuracy": 0.7850000262260437,
+        "effective_tree_count": 17.972856521606445,
+        "entropy_tree_count": 22.578125,
+        "nll": 2.0499842166900635
+      },
+      "claim_caveat": "Preserved raw heuristic flag, not endorsed as established deep double descent. Already interpolating at diagnostic step zero; onset within progressive construction is not localized, and objective switches at the fork.",
+      "hierarchy_endpoint": {
+        "selection": {
+          "accuracy": 0.7950000166893005,
+          "effective_tree_count": 8.673954963684082,
+          "entropy_tree_count": 14.786242485046387,
+          "nll": 1.6816271543502808
+        },
+        "train": {
+          "accuracy": 1.0,
+          "effective_tree_count": 8.91623306274414,
+          "entropy_tree_count": 15.038046836853027,
+          "nll": 0.00047608991735614836
+        }
+      },
+      "interpolation_step": 0,
+      "none_endpoint_selection": {
+        "accuracy": 0.7789999842643738,
+        "effective_tree_count": 18.46831512451172,
+        "entropy_tree_count": 22.96657943725586,
+        "nll": 2.289135694503784
+      },
+      "post_interpolation_selection_min": 1.6816271543502808,
+      "pre_interpolation_selection_min": 0.4046112298965454,
+      "ranking_winner": "hierarchy",
+      "seed": 67,
+      "winner_audit": {
+        "accuracy": 0.7710000276565552,
+        "effective_tree_count": 8.773798942565918,
+        "entropy_tree_count": 14.966093063354492,
+        "nll": 1.764793872833252
+      }
+    },
+    "native-forest-73": {
+      "archive_sha256": "e9f680166063528c33c20e9239e9faad3c3f6ab8bf362b197d8f10ad307d0209",
+      "branch_selection": {
+        "accuracy": 0.7710000276565552,
+        "effective_tree_count": 20.723997116088867,
+        "entropy_tree_count": 25.52170181274414,
+        "nll": 2.2112066745758057
+      },
+      "claim_caveat": "Preserved raw heuristic flag, not endorsed as established deep double descent. Already interpolating at diagnostic step zero; onset within progressive construction is not localized, and objective switches at the fork.",
+      "hierarchy_endpoint": {
+        "selection": {
+          "accuracy": 0.7910000085830688,
+          "effective_tree_count": 10.169132232666016,
+          "entropy_tree_count": 16.350013732910156,
+          "nll": 1.821789026260376
+        },
+        "train": {
+          "accuracy": 1.0,
+          "effective_tree_count": 10.371247291564941,
+          "entropy_tree_count": 16.431787490844727,
+          "nll": 0.0004626696463674307
+        }
+      },
+      "interpolation_step": 0,
+      "none_endpoint_selection": {
+        "accuracy": 0.7670000195503235,
+        "effective_tree_count": 21.10445213317871,
+        "entropy_tree_count": 25.816848754882812,
+        "nll": 2.4985625743865967
+      },
+      "post_interpolation_selection_min": 1.821789026260376,
+      "pre_interpolation_selection_min": 0.3769104778766632,
+      "ranking_winner": "hierarchy",
+      "seed": 73,
+      "winner_audit": {
+        "accuracy": 0.777999997138977,
+        "effective_tree_count": 10.19892692565918,
+        "entropy_tree_count": 16.058866500854492,
+        "nll": 1.9004122018814087
+      }
+    },
+    "run_id": 36145015457,
+    "source_commit": "05c4ec6fe7385cbde0e94d409935c0f6f187c320"
+  },
+  "schema": "torchboost.normalized-physics-continuation.v1",
+  "scope": "Local development results only, plus downloaded completed Actions studies. No new-physics audit opened.",
+  "source_files": {
+    "experiments/deep_local_physics.py": "4c1bff7167b8775fa1080d11a5cb78b1e49f3fa2d48badbdf43d337259faf4ee",
+    "experiments/normalized_energy_controller.py": "f90fbc824de11dcfaee8174aa9801399ee1cae519c583288663d6cda3bfb90a5",
+    "experiments/physics_campaign.py": "aacc4d109640ff6a7f4ab7ee1673496eddc3886fc7ccbff373c7b1e7e9e40956"
+  }
+}

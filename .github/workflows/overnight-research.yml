@@ -1,0 +1,161 @@
+name: Overnight research studies
+on:
+  push:
+    branches: [research/unified-progressive-2026-09-24]
+    paths:
+      - 'torchboost/**'
+      - 'experiments/**'
+      - '.github/workflows/overnight-research.yml'
+permissions:
+  contents: read
+jobs:
+  source-snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Archive exact research source
+        run: |
+          git rev-parse HEAD > SOURCE_COMMIT.txt
+          git archive --format=tar.gz --prefix=TorchBoost/ HEAD > torchboost-source.tar.gz
+          sha256sum torchboost-source.tar.gz > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: torchboost-source-${{ github.sha }}
+          path: |
+            torchboost-source.tar.gz
+            SOURCE_COMMIT.txt
+            SHA256SUMS
+          retention-days: 7
+          if-no-files-found: error
+
+  deep-controller-protocol:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        regime: [stationary, recurring]
+    env:
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install pinned research environment
+        run: |
+          python -m pip install 'torch==2.14.0' --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e '.[dev,benchmark]' -c research-constraints-2026-09-25.txt
+      - name: Normalized source and release-policy campaign
+        run: |
+          set -euo pipefail
+          mkdir -p research-results
+          git rev-parse HEAD > research-results/SOURCE_COMMIT.txt
+          python -m pip freeze > research-results/environment.txt
+          python -m experiments.physics_campaign --regime ${{ matrix.regime }} --out research-results/${{ matrix.regime }} | tee research-results/campaign.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: normalized-physics-${{ matrix.regime }}
+          path: research-results/
+          if-no-files-found: warn
+
+
+  higgs-hybrid-proxy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      OMP_NUM_THREADS: "4"
+      MKL_NUM_THREADS: "4"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install pinned research environment
+        run: |
+          python -m pip install 'torch==2.14.0' --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e '.[dev,benchmark]' -c research-constraints-2026-09-25.txt
+      - name: HIGGS low-level representation-learning development proxy
+        run: |
+          set -euo pipefail
+          mkdir -p research-results
+          git rev-parse HEAD > research-results/SOURCE_COMMIT.txt
+          python -m pip freeze > research-results/environment.txt
+          python experiments/higgs_hybrid_benchmark.py --seed 313 --out research-results/higgs-proxy-313.json | tee research-results/higgs-proxy-313.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: higgs-hybrid-proxy
+          path: research-results/
+          if-no-files-found: warn
+
+  covtype-depth-screen:
+    needs: deep-controller-protocol
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install CPU PyTorch and pinned CatBoost
+        run: |
+          python -m pip install 'torch==2.14.0' --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e '.[dev,benchmark]' -c research-constraints-2026-09-25.txt
+      - name: Rank deeper forests and stronger CatBoost without opening audit
+        run: |
+          set -euo pipefail
+          mkdir -p research-results
+          git rev-parse HEAD > research-results/SOURCE_COMMIT.txt
+          python -m pip freeze > research-results/environment.txt
+          python experiments/covtype_depth_screen.py --seed 61 --train 80000 --out research-results/covtype-depth-61.json | tee research-results/covtype-depth-61.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: covtype-depth-screen
+          path: research-results/
+          if-no-files-found: warn
+
+  native-forest-replication:
+    needs: covtype-depth-screen
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        seed: [79, 89]
+    env:
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install CPU PyTorch and research dependencies
+        run: |
+          python -m pip install 'torch==2.14.0' --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e '.[dev,benchmark]' -c research-constraints-2026-09-25.txt
+      - name: Replicate generic post-interpolation compression
+        run: |
+          set -euo pipefail
+          mkdir -p research-results
+          git rev-parse HEAD > research-results/SOURCE_COMMIT.txt
+          python -m pip freeze > research-results/environment.txt
+          python experiments/native_interpolating_forest.py --seed ${{ matrix.seed }} --out research-results/native-forest.json | tee research-results/native-forest.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-forest-${{ matrix.seed }}
+          path: research-results/
+          if-no-files-found: warn
