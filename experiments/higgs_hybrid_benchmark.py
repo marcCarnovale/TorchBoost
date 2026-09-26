@@ -264,7 +264,7 @@ def run(seed=313, smoke=False):
         "split_hashes": hashes, "audit_role": "unopened until family ranking completes",
         "conditions": {},
         "interpretation_contract": (
-            "The 100k OpenML proxy is architecture development only. The low-level condition "
+            "The 98,050-row OpenML proxy is architecture development only. The low-level condition "
             "tests representation learning; canonical claims require the 11M UCI dataset with "
             "its final 500k held out. Physics is not tested in this benchmark."
         ),
