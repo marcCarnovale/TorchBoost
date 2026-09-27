@@ -9,6 +9,10 @@ on:
       - '.github/workflows/higgs-torchboost-rescaled.yml'
   workflow_dispatch:
 
+concurrency:
+  group: corrected-torchboost-higgs-scaling
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
