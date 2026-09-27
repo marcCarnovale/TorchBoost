@@ -6,7 +6,7 @@ def test_corrected_higgs_schedule_scales_exposure_and_capacity():
     assert [schedules[n]["n_trees"] for n in schedules] == [40, 56, 64]
     assert [schedules[n]["depth"] for n in schedules] == [6, 6, 7]
     assert [schedules[n]["stage_updates"] for n in schedules] == [13, 18, 46]
-    for n, schedule in schedules.items():
+    for schedule in schedules.values():
         assert 2.0 <= schedule["planned_presentations_per_row"] < 2.2
         assert schedule["cart_value_updates"] < schedule["stage_updates"]
 
