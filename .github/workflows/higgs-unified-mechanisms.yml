@@ -1,0 +1,80 @@
+name: Unified HIGGS mechanism screen
+
+on:
+  push:
+    branches: [research/unified-progressive-2026-09-24]
+    paths:
+      - 'torchboost/adaptive/unified_progressive.py'
+      - 'experiments/higgs_unified_mechanism_screen.py'
+      - 'experiments/higgs_shadow_protocol.json'
+      - 'tests/test_higgs_unified_mechanism_screen.py'
+      - '.github/workflows/higgs-unified-mechanisms.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: unified-higgs-mechanism-screen
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  mechanism:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        variant:
+          - hist_hard
+          - hist_oblique
+          - hist_oblique_rate
+          - affine_oblique
+          - affine_oblique_rate
+    env:
+      OMP_NUM_THREADS: "4"
+      MKL_NUM_THREADS: "4"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install pinned research environment
+        run: |
+          python -m pip install 'torch==2.14.0' --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e '.[dev,benchmark]' -c research-constraints-2026-09-25.txt
+      - name: Verify mechanism and audit-lock contracts
+        run: pytest -q tests/test_higgs_unified_mechanism_screen.py
+      - name: Download canonical UCI HIGGS
+        run: |
+          set -euo pipefail
+          if curl -fL --retry 3 --retry-delay 5 https://archive.ics.uci.edu/static/public/280/higgs.zip -o /tmp/higgs.zip; then
+            member=$(unzip -Z1 /tmp/higgs.zip | grep -E '(^|/)HIGGS\.csv\.gz$' | head -1)
+            test -n "$member"
+            unzip -p /tmp/higgs.zip "$member" > /tmp/HIGGS.csv.gz
+            rm -f /tmp/higgs.zip
+          else
+            curl -fL --retry 3 --retry-delay 5 https://archive.ics.uci.edu/ml/machine-learning-databases/00280/HIGGS.csv.gz -o /tmp/HIGGS.csv.gz
+          fi
+          test -s /tmp/HIGGS.csv.gz
+      - name: Run audit-blind 500k mechanism screen
+        run: |
+          set -euo pipefail
+          mkdir -p research-results /tmp/higgs-cache
+          git rev-parse HEAD > research-results/SOURCE_COMMIT.txt
+          cp experiments/higgs_shadow_protocol.json research-results/
+          python -m pip freeze > research-results/environment.txt
+          python -u experiments/higgs_unified_mechanism_screen.py \
+            --csv-gz /tmp/HIGGS.csv.gz \
+            --cache /tmp/higgs-cache \
+            --variant ${{ matrix.variant }} \
+            --seed 509 \
+            --out research-results/higgs-unified-${{ matrix.variant }}.json \
+            | tee research-results/higgs-unified-${{ matrix.variant }}.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: higgs-unified-${{ matrix.variant }}
+          path: research-results/
+          if-no-files-found: warn
