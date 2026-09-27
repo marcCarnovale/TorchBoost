@@ -377,9 +377,15 @@ class RollingBoostConfig(ProgressiveConfig):
     active_window: int = 4
     joint_updates: int = 8
     joint_every: int = 4
+    cart_sample_size: int | None = None
+    verbose: bool = False
+
     def __post_init__(self):
         super().__post_init__()
-        if self.active_window < 1 or self.joint_updates < 0 or self.joint_every < 1: raise ValueError('invalid rolling schedule')
+        if self.active_window < 1 or self.joint_updates < 0 or self.joint_every < 1:
+            raise ValueError('invalid rolling schedule')
+        if self.cart_sample_size is not None and self.cart_sample_size < 1:
+            raise ValueError('cart_sample_size must be positive or None')
 
 class RollingBoostClassifier(ClassifierMixin, BaseEstimator):
     """Efficient progressive sum: fit each new tree against cached old scores.
@@ -409,7 +415,19 @@ class RollingBoostClassifier(ClassifierMixin, BaseEstimator):
                         pp=train_score.sigmoid();g=pp-train.y[:,None];h=(pp*(1-pp)).clamp_min(1e-4);target=-g/h;rw=train.weight[:,None]*h
                     else:
                         pp=train_score.softmax(1);g=pp-torch.nn.functional.one_hot(train.y.long(),self.objective_.output_dim);target=-g;rw=train.weight[:,None].expand_as(target)
-                    residual_cart_initialize(tree,train.x,target,rw.mean(1),cfg.cart_strength,feature_mask=feature_mask);rate=cfg.new_tree_shrinkage
+                    cart_x, cart_target, cart_weight = train.x, target, rw.mean(1)
+                    if cfg.cart_sample_size is not None and cfg.cart_sample_size < len(train.x):
+                        cart_idx = torch.randint(
+                            len(train.x), (cfg.cart_sample_size,), generator=rng
+                        )
+                        cart_x = train.x[cart_idx]
+                        cart_target = target[cart_idx]
+                        cart_weight = cart_weight[cart_idx]
+                    residual_cart_initialize(
+                        tree, cart_x, cart_target, cart_weight, cfg.cart_strength,
+                        feature_mask=feature_mask,
+                    )
+                    rate=cfg.new_tree_shrinkage
             # Fit ONLY the new correction. Old prediction is a detached cache.
             opt=torch.optim.AdamW(tree.parameters(),lr=cfg.learning_rate,weight_decay=cfg.weight_decay)
             for update in range(cfg.stage_updates):
@@ -433,8 +451,11 @@ class RollingBoostClassifier(ClassifierMixin, BaseEstimator):
             if cfg.joint_updates and (stage+1)%cfg.joint_every==0 and len(self.model_.trees)>1:
                 joint=True;start=max(0,len(self.model_.trees)-cfg.active_window);active=list(self.model_.trees[start:]);active_rates=self.model_.rates[start:]
                 with torch.no_grad():
-                    frozen=self.model_.bias.expand(len(train.x),-1).detach().clone();frozen_v=self.model_.bias.expand(len(valid.x),-1).detach().clone()
-                    for r,t in zip(self.model_.rates[:start],self.model_.trees[:start]):frozen+=r*t(train.x);frozen_v+=r*t(valid.x)
+                    # Recover the frozen prefix from the already-cached full score
+                    # instead of reevaluating every old tree over the full dataset.
+                    frozen=train_score.detach().clone();frozen_v=valid_score.detach().clone()
+                    for r,t in zip(active_rates,active):
+                        frozen-=r*t(train.x);frozen_v-=r*t(valid.x)
                 groups=[]
                 for j,t in enumerate(active):groups.append({'params':list(t.parameters()),'lr':cfg.learning_rate*(cfg.old_tree_lr_decay**(len(active)-1-j))})
                 jo=torch.optim.AdamW(groups,weight_decay=cfg.weight_decay)
@@ -450,6 +471,12 @@ class RollingBoostClassifier(ClassifierMixin, BaseEstimator):
                     for r,t in zip(active_rates,active):train_score+=r*t(train.x);valid_score+=r*t(valid.x)
             with torch.no_grad():tr=float(self.objective_.weighted_loss(train_score,train.y,train.weight));va=float(self.objective_.weighted_loss(valid_score,valid.y,valid.weight))
             self.history_.append({'stage':stage+1,'train_loss':tr,'validation_loss':va,'joint_refined':joint,'active_window':min(cfg.active_window,stage+1)})
+            if cfg.verbose:
+                print(
+                    f"rolling_stage={stage+1} trees={len(self.model_.trees)} "
+                    f"train_loss={tr:.8f} validation_loss={va:.8f} joint={joint}",
+                    flush=True,
+                )
             if va<best-cfg.min_improvement:best=va;best_stage=stage+1;best_state=deepcopy(self.model_.state_dict());stale=0
             else:stale+=1
             if stale>=cfg.patience_stages:break
