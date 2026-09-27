@@ -75,7 +75,11 @@ class ObliviousSoftForest(nn.Module):
         self.bias = nn.Parameter(torch.full((self.output_dim,), float(bias)))
 
     def forward(self, x: torch.Tensor, *, hard: bool | None = None) -> torch.Tensor:
-        total = torch.stack([tree(x, hard=hard) for tree in self.trees]).sum(0)
+        # Stream tree contributions: a canonical 1536-tree endpoint should not
+        # allocate [trees, batch, output] just to sum it immediately.
+        total = x.new_zeros((len(x), self.output_dim))
+        for tree in self.trees:
+            total = total + tree(x, hard=hard)
         return self.bias + self.scale * total
 
     def release(self, *, learn_temperature: bool = False) -> None:
