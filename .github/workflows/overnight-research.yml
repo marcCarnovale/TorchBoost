@@ -3,9 +3,21 @@ on:
   push:
     branches: [research/unified-progressive-2026-09-24]
     paths:
-      - 'torchboost/**'
-      - 'experiments/**'
-      - '.github/workflows/overnight-research.yml'
+      - 'experiments/physics_campaign.py'
+      - 'experiments/deep_controller_protocol.py'
+      - 'experiments/higgs_hybrid_benchmark.py'
+      - 'experiments/covtype_depth_screen.py'
+      - 'experiments/native_interpolating_forest.py'
+      - 'experiments/normalized_energy_controller.py'
+      - 'torchboost/adaptive/config.py'
+      - 'torchboost/adaptive/rated_forest.py'
+      - 'torchboost/adaptive/rated_training.py'
+  workflow_dispatch:
+
+concurrency:
+  group: overnight-research-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 jobs:
