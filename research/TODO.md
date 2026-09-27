@@ -80,7 +80,7 @@ trainable parameters.
 
 Next:
 
-- [ ] Add a canonical-HIGGS MLP-corner training harness.
+- [x] Add a canonical-HIGGS MLP-corner training harness. Launched via `HIGGS endpoint calibration`.
 - [ ] Match the frozen MLP exactly: same initialization, standardization,
       width/depth, ReLU, dropout, AdamW, LR, weight decay, batch size, epoch
       count, batch ordering, clipping and selection rule.
@@ -104,8 +104,8 @@ agreement.
 
 Next:
 
-- [ ] Produce/save the exact frozen 500k CatBoost model (JSON) under the
-      canonical data/split/seed/configuration.
+- [~] Produce/save the exact frozen 500k CatBoost model (JSON) under the
+      canonical data/split/seed/configuration. Calibration job launched; mark complete when artifact lands.
 - [ ] Import it into TorchBoost and verify raw logits, ranking NLL and ranking
       AUC agree to numerical tolerance.
 - [ ] Save the imported model as the **boosting anchor**.
