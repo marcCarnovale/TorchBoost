@@ -447,6 +447,77 @@ class UnifiedTrainer(JointTrainer):
         self.refit_history.append({'step':self.tick,'accepted':accepted,'objective_before':before,'objective_after':value(),'step_size':step,'solve_residual':float((H@delta.reshape(-1)+gradient).abs().max())})
         self.fixed_cache=None
 
+    def refit_best_stage_rates(self,train,selection,*,l2=1e-5,max_iter=30):
+        """Convex global refit of binary stage coefficients on the training split.
+
+        Tree parameters and routing are frozen. The candidate starts from the
+        selection-best snapshot, fits only the intercept and one scalar per tree
+        on training data, and replaces the best snapshot only when selection
+        improves. Ranking/audit data are never used.
+        """
+        if self.objective.task!='binary':
+            raise ValueError('global stage-rate refit currently supports binary objectives')
+        candidate=restore_model(
+            self.best_snapshot,self.model.input_dim,self.model.output_dim,self.config
+        )
+        if not candidate.trees:
+            return {'accepted':False,'reason':'no_trees'}
+        with torch.no_grad():
+            columns=[]
+            for tree in candidate.trees:
+                columns.append(torch.cat([
+                    tree(batch,hard=getattr(tree,'force_hard',False))[0][:,0]
+                    for batch in train.x.split(2048)
+                ]))
+            design=torch.stack(columns,1)
+        initial=candidate.stage_rates.detach().clone()
+        rates=torch.nn.Parameter(initial.clone())
+        intercept=torch.nn.Parameter(candidate.bias.detach().reshape(()).clone())
+        y=train.y.float();weight=train.weight.float()
+        optimizer=torch.optim.LBFGS(
+            [rates,intercept],lr=1.,max_iter=max_iter,line_search_fn='strong_wolfe'
+        )
+        def closure():
+            optimizer.zero_grad()
+            score=intercept+design@rates
+            primary=(weight*(torch.nn.functional.softplus(score)-y*score)).sum()/weight.sum()
+            penalty=l2*(rates-initial).square().mean()
+            loss=primary+penalty
+            loss.backward()
+            return loss
+        before_train=float(closure().detach())
+        optimizer.step(closure)
+        with torch.no_grad():
+            candidate.stage_rates.copy_(rates)
+            candidate.bias.copy_(intercept.reshape_as(candidate.bias))
+            score=torch.cat([candidate(batch) for batch in selection.x.split(2048)])
+            selection_after=float(
+                self.objective.weighted_loss(score,selection.y,selection.weight)
+            )
+            score0=torch.cat([
+                restore_model(
+                    self.best_snapshot,self.model.input_dim,self.model.output_dim,self.config
+                )(batch) for batch in selection.x.split(2048)
+            ])
+            selection_before=float(
+                self.objective.weighted_loss(score0,selection.y,selection.weight)
+            )
+            train_after=float(closure().detach())
+        accepted=selection_after<selection_before
+        if accepted:
+            self.best_score=selection_after
+            self.best_epoch=self.tick
+            self.best_snapshot=model_snapshot(candidate)
+        record={
+            'accepted':accepted,'selection_before':selection_before,
+            'selection_after':selection_after,'train_objective_before':before_train,
+            'train_objective_after':train_after,'l2':l2,'max_iter':max_iter,
+            'rates_before':initial.tolist(),'rates_after':rates.detach().tolist(),
+            'bias_after':float(intercept.detach()),
+        }
+        self.refit_history.append({'step':self.tick,'kind':'global_stage_rates',**record})
+        return record
+
     def state_dict(self):
         out=super().state_dict()
         out['progressive']={k:deepcopy(getattr(self,k)) for k in ('stage','tick','age_frozen','reopened','exposures','updates','admitted','proposal_history','sampling_history','term_totals','refit_history','cache_hits')}
@@ -486,6 +557,18 @@ class _Estimator(BaseEstimator):
     def _select(self):
         self.model_=restore_model(self.trainer_.best_snapshot,self.n_features_in_,self.objective_.output_dim,self.trainer_.config);self.model_.eval()
         self.n_estimators_=len(self.model_.trees);self.best_score_=self.trainer_.best_score;self.history_=self.trainer_.history
+    def refit_stage_rates(self,X,y,sample_weight=None,*,eval_set,l2=1e-5,max_iter=30):
+        """Refit global tree coefficients using training only; selection gates acceptance."""
+        check_is_fitted(self,'trainer_')
+        train=self.preprocessor_.split(X,y,sample_weight)
+        selection=self.preprocessor_.split(*eval_set)
+        record=self.trainer_.refit_best_stage_rates(
+            train,selection,l2=l2,max_iter=max_iter
+        )
+        self._select()
+        self.rate_refit_=record
+        return self
+
     def continue_fit(self,X,y,sample_weight=None,*,control_set,eval_set,stop_stages=None,allow_domain_shift=False):
         check_is_fitted(self,'trainer_')
         if allow_domain_shift:
