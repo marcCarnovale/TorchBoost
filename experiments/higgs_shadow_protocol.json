@@ -1,0 +1,48 @@
+{
+  "protocol": "HIGGS shadow audit lock v1",
+  "locked_before_next_mechanism_screen": true,
+  "source": {
+    "dataset": "UCI HIGGS",
+    "expected_rows": 11000000,
+    "low_level_features": 21,
+    "source_sha256": "ea302c18164d4e3d916a1e2e83a9a8d07069fa6ebc7771e4c0540d54e593b698"
+  },
+  "development": {
+    "train_500k": [
+      0,
+      500000
+    ],
+    "train_1m": [
+      0,
+      1000000
+    ],
+    "train_3m": [
+      0,
+      3000000
+    ],
+    "selection": [
+      10100000,
+      10300000
+    ],
+    "ranking": [
+      10300000,
+      10500000
+    ]
+  },
+  "shadow_audit": {
+    "range": [
+      9600000,
+      10100000
+    ],
+    "rows": 500000,
+    "rule": "Do not evaluate during mechanism screening. Open only after an architecture/configuration is fixed from train+selection+ranking."
+  },
+  "legacy_canonical_audit": {
+    "range": [
+      10500000,
+      11000000
+    ],
+    "rows": 500000,
+    "status": "Previously opened; retain only for frozen historical comparisons, not fresh tuning claims."
+  }
+}
