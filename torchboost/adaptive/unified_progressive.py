@@ -494,15 +494,20 @@ class UnifiedTrainer(JointTrainer):
             selection_after=float(
                 self.objective.weighted_loss(score,selection.y,selection.weight)
             )
-            score0=torch.cat([
-                restore_model(
-                    self.best_snapshot,self.model.input_dim,self.model.output_dim,self.config
-                )(batch) for batch in selection.x.split(2048)
-            ])
+            original=restore_model(
+                self.best_snapshot,self.model.input_dim,self.model.output_dim,self.config
+            )
+            score0=torch.cat([original(batch) for batch in selection.x.split(2048)])
             selection_before=float(
                 self.objective.weighted_loss(score0,selection.y,selection.weight)
             )
-            train_after=float(closure().detach())
+            train_score=intercept+design@rates
+            train_primary=(
+                weight*(torch.nn.functional.softplus(train_score)-y*train_score)
+            ).sum()/weight.sum()
+            train_after=float(
+                train_primary+l2*(rates-initial).square().mean()
+            )
         accepted=selection_after<selection_before
         if accepted:
             self.best_score=selection_after
