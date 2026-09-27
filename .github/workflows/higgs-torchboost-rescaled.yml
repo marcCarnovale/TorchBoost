@@ -1,0 +1,68 @@
+name: Corrected TorchBoost HIGGS scaling
+
+on:
+  push:
+    branches: [research/unified-progressive-2026-09-24]
+    paths:
+      - 'experiments/higgs_torchboost_rescaled.py'
+      - 'tests/test_higgs_torchboost_rescaled.py'
+      - '.github/workflows/higgs-torchboost-rescaled.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  corrected-torchboost:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        ntrain: [500000, 1000000, 3000000]
+    env:
+      OMP_NUM_THREADS: "4"
+      MKL_NUM_THREADS: "4"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install pinned research environment
+        run: |
+          python -m pip install 'torch==2.14.0' --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e '.[dev,benchmark]' -c research-constraints-2026-09-25.txt
+      - name: Verify corrected scaling contract
+        run: pytest -q tests/test_higgs_torchboost_rescaled.py
+      - name: Download canonical UCI HIGGS
+        run: |
+          set -euo pipefail
+          if curl -fL --retry 3 --retry-delay 5 https://archive.ics.uci.edu/static/public/280/higgs.zip -o /tmp/higgs.zip; then
+            member=$(unzip -Z1 /tmp/higgs.zip | grep -E '(^|/)HIGGS\.csv\.gz$' | head -1)
+            test -n "$member"
+            unzip -p /tmp/higgs.zip "$member" > /tmp/HIGGS.csv.gz
+            rm -f /tmp/higgs.zip
+          else
+            curl -fL --retry 3 --retry-delay 5 https://archive.ics.uci.edu/ml/machine-learning-databases/00280/HIGGS.csv.gz -o /tmp/HIGGS.csv.gz
+          fi
+          test -s /tmp/HIGGS.csv.gz
+      - name: Run corrected TorchBoost-only canonical scale
+        run: |
+          set -euo pipefail
+          mkdir -p research-results /tmp/higgs-cache
+          git rev-parse HEAD > research-results/SOURCE_COMMIT.txt
+          python -m pip freeze > research-results/environment.txt
+          python experiments/higgs_torchboost_rescaled.py \
+            --csv-gz /tmp/HIGGS.csv.gz \
+            --cache /tmp/higgs-cache \
+            --ntrain ${{ matrix.ntrain }} \
+            --seed 509 \
+            --out research-results/higgs-torchboost-rescaled-${{ matrix.ntrain }}.json \
+            | tee research-results/higgs-torchboost-rescaled-${{ matrix.ntrain }}.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: higgs-torchboost-rescaled-${{ matrix.ntrain }}
+          path: research-results/
+          if-no-files-found: warn
