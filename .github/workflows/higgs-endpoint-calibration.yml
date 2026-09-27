@@ -1,0 +1,78 @@
+name: HIGGS endpoint calibration
+
+on:
+  push:
+    branches: [research/unified-progressive-2026-09-24]
+    paths:
+      - 'torchboost/adaptive/architecture_corners.py'
+      - 'experiments/higgs_endpoint_calibration.py'
+      - 'tests/test_higgs_endpoint_calibration.py'
+      - '.github/workflows/higgs-endpoint-calibration.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: higgs-endpoint-calibration
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  endpoint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        endpoint: [mlp, catboost]
+    env:
+      OMP_NUM_THREADS: "4"
+      MKL_NUM_THREADS: "4"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install pinned research environment
+        run: |
+          python -m pip install 'torch==2.14.0' --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e '.[dev,benchmark]' -c research-constraints-2026-09-25.txt
+      - name: Verify endpoint contracts
+        run: pytest -q tests/test_architecture_corners.py tests/test_higgs_endpoint_calibration.py
+      - name: Download canonical UCI HIGGS
+        run: |
+          set -euo pipefail
+          if curl -fL --retry 3 --retry-delay 5 https://archive.ics.uci.edu/static/public/280/higgs.zip -o /tmp/higgs.zip; then
+            member=$(unzip -Z1 /tmp/higgs.zip | grep -E '(^|/)HIGGS\.csv\.gz$' | head -1)
+            test -n "$member"
+            unzip -p /tmp/higgs.zip "$member" > /tmp/HIGGS.csv.gz
+            rm -f /tmp/higgs.zip
+          else
+            curl -fL --retry 3 --retry-delay 5 https://archive.ics.uci.edu/ml/machine-learning-databases/00280/HIGGS.csv.gz -o /tmp/HIGGS.csv.gz
+          fi
+          test -s /tmp/HIGGS.csv.gz
+      - name: Calibrate endpoint
+        run: |
+          set -euo pipefail
+          mkdir -p research-results /tmp/higgs-cache
+          git rev-parse HEAD > research-results/SOURCE_COMMIT.txt
+          cp experiments/higgs_shadow_protocol.json research-results/
+          python -m pip freeze > research-results/environment.txt
+          args=()
+          if [ "${{ matrix.endpoint }}" = "catboost" ]; then
+            args+=(--model-out research-results/canonical-catboost-500k.json)
+          fi
+          python -u experiments/higgs_endpoint_calibration.py \
+            --csv-gz /tmp/HIGGS.csv.gz \
+            --cache /tmp/higgs-cache \
+            --endpoint "${{ matrix.endpoint }}" \
+            --out "research-results/higgs-endpoint-${{ matrix.endpoint }}.json" \
+            "${args[@]}" \
+            | tee "research-results/higgs-endpoint-${{ matrix.endpoint }}.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: higgs-endpoint-${{ matrix.endpoint }}
+          path: research-results/
+          if-no-files-found: warn
