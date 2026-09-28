@@ -343,11 +343,10 @@ def run(csv_gz, cache, out, checkpoint_dir, seed=SEED):
     )
 
     regularization = ArchitectureRegularization(
-        # The first differentiable run used 2e-4 gate pressure from the start
-        # and all five gates collapsed.  Keep the complexity signal, but make
-        # it weak enough that selection improvement can dominate when a
-        # specialist is useful.
-        gate_l1=2e-5,
+        # Residual scale is itself the architecture variable we want held-out
+        # loss to discover. Do not directly tax gate openness; charge only for
+        # the complexity of the residual/routing machinery it actually uses.
+        gate_l1=0.0,
         gate_entropy=0.0,
         residual_l2=2e-7,
         routing_l1=5e-7,
