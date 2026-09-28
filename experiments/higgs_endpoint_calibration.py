@@ -56,7 +56,13 @@ def calibrate_mlp(splits, seed):
 
     torch.manual_seed(seed+305)
     reference=MLP(LOW_FEATURES,300,5,.1)
+    # The frozen canonical MLP begins training from the RNG state immediately
+    # after its own construction. Building the TorchBoost embedding allocates
+    # modules and consumes RNG, so preserve/restore that state or calibration
+    # would use a different dropout trajectory despite identical weights.
+    canonical_training_rng=torch.get_rng_state()
     corner=CompositionalTreeNetwork.from_mlp(reference,max_tree_depth=3,seed=seed+1200)
+    torch.set_rng_state(canonical_training_rng)
     ref_opt=torch.optim.AdamW(reference.parameters(),lr=1e-3,weight_decay=1e-5)
     corner_opt=torch.optim.AdamW(
         [p for p in corner.parameters() if p.requires_grad],lr=1e-3,weight_decay=1e-5
