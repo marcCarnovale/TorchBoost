@@ -40,7 +40,7 @@ def test_supernet_growth_is_function_preserving_with_nonzero_soft_gates():
         actual=supernet(x)
     assert torch.allclose(actual,expected,atol=2e-6,rtol=2e-6)
     state=architecture_state(supernet)
-    assert all(abs(row["gate"] - 0.5) < 1e-7 for row in state["layers"])
+    assert all(abs(row["gate"] - 1.0) < 1e-7 for row in state["layers"])
 
 
 def test_architecture_gate_receives_predictive_gradient_after_residual_moves():
@@ -89,7 +89,6 @@ def test_complexity_penalty_does_not_change_zero_residual_function():
         for layer in model.layers:
             layer.architecture_logit.add_(1.75)
         after=model(x)
-    # At birth every residual branch is exactly zero, so architecture gates
-    # are free to start in the high-gradient interior without perturbing the
-    # calibrated MLP predictor.
+    # At birth every residual branch is exactly zero, so architecture scales
+    # may start at unit strength without perturbing the calibrated MLP predictor.
     assert torch.allclose(before,after,atol=2e-6,rtol=2e-6)
