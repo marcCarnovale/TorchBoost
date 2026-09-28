@@ -189,14 +189,15 @@ class ExpandableAffineTreeLayer(nn.Module):
         # function is never gated, so any gate value is function preserving at
         # the instant of growth.  A negative initial logit makes the model pay
         # evidence before opening structural capacity while still preserving
-        # Start differentiable residual capacity at unit scale, matching the
-        # successful ungated all-residual mechanism rather than attenuating it.
-        # softplus(log(exp(1)-1)) == 1, gives a healthy derivative, can shrink
-        # continuously toward zero, and can expand beyond one when evidence
-        # supports a stronger specialist correction.
-        inverse_softplus_one = math.log(math.e - 1.0)
+        # Historical all-residual improvement was obtained with the old
+        # sigmoid(-2) residual multiplier.  Preserve that empirically useful
+        # perturbative scale while keeping the new positive softplus
+        # parameterization, so held-out gradients may shrink toward zero or
+        # grow beyond the initial correction strength.
+        initial_residual_scale = 1.0 / (1.0 + math.exp(2.0))
+        inverse_softplus = math.log(math.expm1(initial_residual_scale))
         self.architecture_logit = nn.Parameter(
-            torch.tensor(inverse_softplus_one), requires_grad=False
+            torch.tensor(inverse_softplus), requires_grad=False
         )
 
         with torch.no_grad():
@@ -227,6 +228,17 @@ class ExpandableAffineTreeLayer(nn.Module):
     @property
     def architecture_gate(self) -> torch.Tensor:
         return torch.nn.functional.softplus(self.architecture_logit)
+
+    @torch.no_grad()
+    def set_architecture_scale(self, value: float, *, learnable: bool | None = None) -> None:
+        """Set a positive residual scale without changing the represented birth function."""
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError("architecture scale must be finite and positive")
+        self.architecture_logit.copy_(
+            self.architecture_logit.new_tensor(math.log(math.expm1(value)))
+        )
+        if learnable is not None:
+            self.architecture_logit.requires_grad_(bool(learnable))
 
     @torch.no_grad()
     def release_to_tree(self) -> None:
