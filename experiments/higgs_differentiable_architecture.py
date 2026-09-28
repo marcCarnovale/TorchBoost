@@ -47,10 +47,10 @@ from torchboost.adaptive.architecture_regularization import (
 NTRAIN = 500_000
 SEED = 509
 ANCHOR_EPOCHS = 20
-DISCOVERY_EPOCHS = 4
-WARMUP_EPOCHS = 1
+DISCOVERY_EPOCHS = 5
+WARMUP_EPOCHS = 2
 BATCH = 4096
-ARCH_EVERY = 4
+ARCH_EVERY = 2
 
 
 @torch.no_grad()
@@ -175,7 +175,7 @@ def discover(
     weight_params, architecture_params = parameter_partition(model)
     weight_opt = torch.optim.AdamW(weight_params, lr=1e-3, weight_decay=1e-5)
     architecture_opt = torch.optim.Adam(
-        architecture_params, lr=3e-3, weight_decay=0.0
+        architecture_params, lr=1e-2, weight_decay=0.0
     )
     loss_fn = torch.nn.BCEWithLogitsLoss()
     train_rng = torch.Generator().manual_seed(seed)
@@ -203,11 +203,11 @@ def discover(
             architecture_opt.zero_grad(set_to_none=True)
             prediction = model(xb)
             pred_loss = loss_fn(prediction, yb)
-            # Weight regularization uses the same differentiable structural
-            # quantities, but architecture parameters are not stepped here.
-            reg, _ = differentiable_architecture_penalty(model, regularization)
-            weight_loss = pred_loss + reg
-            weight_loss.backward()
+            # Predictive parameters must first get a fair chance to make the
+            # zero-at-birth residual specialists useful. Complexity is an
+            # architecture-selection charge, not a shrinkage term on every
+            # training-weight step.
+            pred_loss.backward()
             torch.nn.utils.clip_grad_norm_(weight_params, 10.0)
             weight_opt.step()
             train_examples += len(idx)
@@ -230,7 +230,14 @@ def discover(
                 architecture_penalty, _ = differentiable_architecture_penalty(
                     model, regularization
                 )
-                architecture_loss = selection_loss + architecture_penalty
+                # No sparsity pressure during warm-up.  After warm-up, ramp
+                # the full complexity Lagrangian in gradually so a useful
+                # residual can establish a held-out signal before being taxed.
+                progress = (epoch - warmup_epochs + 1) / max(
+                    1, epochs - warmup_epochs
+                )
+                penalty_scale = min(1.0, max(0.0, progress))
+                architecture_loss = selection_loss + penalty_scale * architecture_penalty
                 architecture_loss.backward()
                 torch.nn.utils.clip_grad_norm_(architecture_params, 2.0)
                 architecture_opt.step()
@@ -244,6 +251,16 @@ def discover(
             "selection": sel,
             "architecture": architecture_state(model),
             "penalty": float(penalty.detach()),
+            "penalty_scale": (
+                0.0 if epoch < warmup_epochs else min(
+                    1.0,
+                    max(
+                        0.0,
+                        (epoch - warmup_epochs + 1)
+                        / max(1, epochs - warmup_epochs),
+                    ),
+                )
+            ),
             "penalty_components": {
                 k: float(v.detach()) for k, v in components.items()
             },
@@ -326,10 +343,14 @@ def run(csv_gz, cache, out, checkpoint_dir, seed=SEED):
     )
 
     regularization = ArchitectureRegularization(
-        gate_l1=2e-4,
-        gate_entropy=1e-5,
-        residual_l2=1e-6,
-        routing_l1=2e-6,
+        # The first differentiable run used 2e-4 gate pressure from the start
+        # and all five gates collapsed.  Keep the complexity signal, but make
+        # it weak enough that selection improvement can dominate when a
+        # specialist is useful.
+        gate_l1=2e-5,
+        gate_entropy=0.0,
+        residual_l2=2e-7,
+        routing_l1=5e-7,
     )
     discovery = discover(
         supernet,
