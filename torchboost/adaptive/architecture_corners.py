@@ -184,6 +184,13 @@ class ExpandableAffineTreeLayer(nn.Module):
         bound = 1 / math.sqrt(input_dim)
         nn.init.uniform_(self.bias, -bound, bound)
         self._dense_endpoint = True
+        # Once released to a tree, this continuous gate controls how much of
+        # the zero-at-birth residual refinement is used.  The base affine
+        # function is never gated, so any gate value is function preserving at
+        # the instant of growth.  A negative initial logit makes the model pay
+        # evidence before opening structural capacity while still preserving
+        # nonzero gradients through the sigmoid.
+        self.architecture_logit = nn.Parameter(torch.tensor(-2.0), requires_grad=False)
 
         with torch.no_grad():
             self.forest.bias.zero_()
@@ -204,7 +211,15 @@ class ExpandableAffineTreeLayer(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self._dense_endpoint:
             return torch.nn.functional.linear(x, self.weight, self.bias)
-        return self.forest(x)
+        root = self.root
+        base = root.value + x @ root.linear_value
+        full = self.forest(x)
+        refinement = full - base
+        return base + torch.sigmoid(self.architecture_logit) * refinement
+
+    @property
+    def architecture_gate(self) -> torch.Tensor:
+        return torch.sigmoid(self.architecture_logit)
 
     @torch.no_grad()
     def release_to_tree(self) -> None:
@@ -218,6 +233,7 @@ class ExpandableAffineTreeLayer(nn.Module):
         self.bias.requires_grad_(False)
         root.linear_value.requires_grad_(True)
         root.value.requires_grad_(True)
+        self.architecture_logit.requires_grad_(True)
         self._dense_endpoint = False
 
     @torch.no_grad()
