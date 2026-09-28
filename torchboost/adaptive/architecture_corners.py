@@ -189,11 +189,15 @@ class ExpandableAffineTreeLayer(nn.Module):
         # function is never gated, so any gate value is function preserving at
         # the instant of growth.  A negative initial logit makes the model pay
         # evidence before opening structural capacity while still preserving
-        # nonzero gradients through the sigmoid.  Start released supernets at
-        # the maximum-gradient neutral point (gate=0.5): residual children are
-        # exactly zero at birth, so this still preserves the MLP function
-        # exactly while avoiding a built-in bias toward architecture closure.
-        self.architecture_logit = nn.Parameter(torch.tensor(0.0), requires_grad=False)
+        # Start differentiable residual capacity at unit scale, matching the
+        # successful ungated all-residual mechanism rather than attenuating it.
+        # softplus(log(exp(1)-1)) == 1, gives a healthy derivative, can shrink
+        # continuously toward zero, and can expand beyond one when evidence
+        # supports a stronger specialist correction.
+        inverse_softplus_one = math.log(math.e - 1.0)
+        self.architecture_logit = nn.Parameter(
+            torch.tensor(inverse_softplus_one), requires_grad=False
+        )
 
         with torch.no_grad():
             self.forest.bias.zero_()
@@ -218,11 +222,11 @@ class ExpandableAffineTreeLayer(nn.Module):
         base = root.value + x @ root.linear_value
         full = self.forest(x)
         refinement = full - base
-        return base + torch.sigmoid(self.architecture_logit) * refinement
+        return base + self.architecture_gate * refinement
 
     @property
     def architecture_gate(self) -> torch.Tensor:
-        return torch.sigmoid(self.architecture_logit)
+        return torch.nn.functional.softplus(self.architecture_logit)
 
     @torch.no_grad()
     def release_to_tree(self) -> None:
