@@ -1,3 +1,5 @@
+import math
+
 import torch
 from torch import nn
 
@@ -40,7 +42,7 @@ def test_supernet_growth_is_function_preserving_with_nonzero_soft_gates():
         actual=supernet(x)
     assert torch.allclose(actual,expected,atol=2e-6,rtol=2e-6)
     state=architecture_state(supernet)
-    expected=1.0/(1.0+__import__("math").exp(2.0))
+    expected=1.0/(1.0+math.exp(2.0))
     assert all(abs(row["gate"] - expected) < 1e-7 for row in state["layers"])
 
 
