@@ -121,6 +121,11 @@ def calibrate_mlp(splits, seed):
             "max_batch_loss_diff":max_batch_loss_diff,
         })
         print(json.dumps(history[-1]),flush=True)
+        if max_batch_logit_diff>2e-6 or prediction_diff>2e-6:
+            raise RuntimeError(
+                f"MLP training-path drift at epoch {epoch+1}: "
+                f"logit={max_batch_logit_diff}, probability={prediction_diff}"
+            )
         if mr["nll"]<best_ref[0]:
             best_ref=(mr["nll"],{k:v.detach().clone() for k,v in reference.state_dict().items()},epoch+1)
         if mc["nll"]<best_corner[0]:
