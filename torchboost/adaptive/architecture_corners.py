@@ -134,7 +134,20 @@ class ObliviousSoftForest(nn.Module):
 
 
 class ExpandableAffineTreeLayer(nn.Module):
-    """One affine tree layer; depth zero is exactly a dense affine transform."""
+    """Dense MLP layer that can migrate exactly into an expandable affine tree.
+
+    While the topology is depth zero, the canonical parameters are stored in
+    nn.Linear orientation and evaluated with torch.nn.functional.linear.  This
+    is deliberate: x @ W.T and F.linear(x, W, b) are algebraically identical
+    but need not follow the same floating-point kernel.  Exact endpoint
+    calibration therefore keeps the native MLP storage/computation path until
+    the first structural growth operation.
+
+    release_to_tree() is function preserving.  It copies the dense endpoint
+    into the root residual packet, freezes the canonical dense parameters, and
+    enables the tree packet for subsequent optimization.  Optimizers should be
+    rebuilt after release so newly trainable structural parameters are tracked.
+    """
 
     def __init__(self, input_dim: int, output_dim: int, *, max_tree_depth: int = 3, seed: int = 0):
         super().__init__()
@@ -161,6 +174,17 @@ class ExpandableAffineTreeLayer(nn.Module):
         )
         self.forest = AdaptiveForest(input_dim, output_dim, cfg)
         self.input_dim, self.output_dim = input_dim, output_dim
+
+        # Keep a genuine nn.Linear-compatible endpoint: contiguous [out, in]
+        # weight followed by bias.  This also gives AdamW the same trainable
+        # parameter order as the reference MLP.
+        self.weight = nn.Parameter(torch.empty(output_dim, input_dim))
+        self.bias = nn.Parameter(torch.empty(output_dim))
+        nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
+        bound = 1 / math.sqrt(input_dim)
+        nn.init.uniform_(self.bias, -bound, bound)
+        self._dense_endpoint = True
+
         with torch.no_grad():
             self.forest.bias.zero_()
         self.forest.bias.requires_grad_(False)
@@ -168,6 +192,9 @@ class ExpandableAffineTreeLayer(nn.Module):
         tree.depth_logits.requires_grad_(False)
         for node in tree.nodes.values():
             node.allocation_logit.requires_grad_(False)
+            node.value.requires_grad_(False)
+            if node.linear_value is not None:
+                node.linear_value.requires_grad_(False)
 
     @property
     def root(self):
@@ -175,11 +202,28 @@ class ExpandableAffineTreeLayer(nn.Module):
         return tree.get(tree.root_id)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self._dense_endpoint:
+            return torch.nn.functional.linear(x, self.weight, self.bias)
         return self.forest(x)
+
+    @torch.no_grad()
+    def release_to_tree(self) -> None:
+        """Migrate the exact dense endpoint into the root tree packet."""
+        if not self._dense_endpoint:
+            return
+        root = self.root
+        root.linear_value.copy_(self.weight.T)
+        root.value.copy_(self.bias)
+        self.weight.requires_grad_(False)
+        self.bias.requires_grad_(False)
+        root.linear_value.requires_grad_(True)
+        root.value.requires_grad_(True)
+        self._dense_endpoint = False
 
     @torch.no_grad()
     def grow_one_level(self) -> int:
         """Function-preserving expansion: new residual children start at zero."""
+        self.release_to_tree()
         tree = self.forest.trees[0]
         leaves = [
             node.node_id for node in tree.nodes.values()
@@ -255,8 +299,8 @@ class CompositionalTreeNetwork(nn.Module):
         )
         with torch.no_grad():
             for target, source in zip(model.layers, linears[:-1]):
-                target.root.linear_value.copy_(source.weight.T)
-                target.root.value.copy_(source.bias)
+                target.weight.copy_(source.weight)
+                target.bias.copy_(source.bias)
             model.head.weight.copy_(linears[-1].weight)
             model.head.bias.copy_(linears[-1].bias)
         return model
