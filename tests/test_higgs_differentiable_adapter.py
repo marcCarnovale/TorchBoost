@@ -4,7 +4,9 @@ import torch
 from torch import nn
 
 from experiments.higgs_differentiable_adapter import (
-    INITIAL_SCALE, build_adapter, partition,
+    INITIAL_SCALE,
+    build_adapter,
+    partition,
 )
 from torchboost.adaptive.architecture_corners import CompositionalTreeNetwork
 
