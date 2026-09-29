@@ -1,6 +1,6 @@
 # TorchBoost Research TODO
 
-Last updated: 2026-09-27
+Last updated: 2026-09-28
 
 This is the persistent research-priority document for the
 `research/unified-progressive-2026-09-24` program.
@@ -66,6 +66,62 @@ Future code must track separately:
 4. examples seen per live parameter block;
 5. full-data-equivalent passes per component;
 6. global/end-to-end polish exposure.
+
+### Differentiable residual-adapter result — current best direction
+
+The endpoint and first MLP-side departure questions are now answered strongly
+enough to change priorities.
+
+- Endpoint calibration run `36373429249` established exact MLP training-path
+  equivalence and numerical CatBoost endpoint equivalence.
+- Frozen-backbone all-layer residual adapters at perturbative scale
+  `sigmoid(-2) ~= 0.1192` beat the canonical MLP and CatBoost ranking anchors.
+- Faithful differentiable-adapter run `36525742176`, SHA
+  `265a8e040a060080d198bb5fce5578a1ccc1825f`, compared identical residual
+  adapters under matched training compute.  Held-out learning of only the five
+  residual scales improved over keeping every scale fixed at 0.1192:
+  - fixed adapter ranking: NLL 0.57106812 / AUC 0.76946808;
+  - learned-scale ranking: NLL 0.57049915 / AUC 0.76991939;
+  - learned minus fixed: -0.00056897 NLL / +0.00045131 AUC.
+- Learned scales were approximately
+  `[0.1329, 0.0923, 0.0644, 0.0423, 0.0385]`.
+- The fresh shadow audit remains unopened.
+
+**Interpretation:** a small tree-residual correction to a strong neural
+backbone is currently the strongest HIGGS mechanism, and held-out
+differentiable architecture learning adds value beyond a fixed residual scale.
+
+### Immediate next decisions
+
+Do not return to broad blind mechanism search.  The next work should answer
+whether this result is robust and whether additional differentiable degrees of
+freedom earn their complexity.
+
+1. **Freeze the current protocol before more architecture tuning.**
+   Record the learned-scale adapter as the current 500k development champion
+   and stop tuning its five scale coordinates against ranking.
+2. **Replication before shadow audit.**
+   Repeat the exact fixed-vs-learned adapter comparison on a small number of
+   predeclared training seeds, using selection for scale learning and ranking
+   only for comparison.  Require the learned-scale advantage to be directionally
+   stable rather than relying on one seed.
+3. **Only then extend one coordinate at a time.**
+   The first justified extension is differentiable routing strength/temperature
+   or residual packet rank, initialized function-preservingly.  Keep the
+   five-scale learned adapter as the matched control.  Do not simultaneously
+   release backbone weights, topology, packet type, and routing.
+4. **CatBoost-side meeting-in-the-middle is secondary.**
+   Imported-CatBoost soft/oblique relaxation remains scientifically useful, but
+   the MLP-residual path has already produced the stronger predictor and should
+   receive priority.
+5. **Shadow audit is a one-way door.**
+   Open rows `[9,600,000, 10,100,000)` only after the architecture,
+   regularization, seed-replication rule, and final checkpoint-selection rule
+   are frozen.  Do not use the shadow result to choose another configuration.
+6. **After the shadow audit**, scale the frozen architecture to 1M and then 3M
+   with exposure accounting/checkpointing fixed; separately benchmark
+   compute/memory/inference and run broader tabular datasets before making a
+   general TorchBoost-superiority claim.
 
 ## P0 — calibrate the two exact endpoints
 
@@ -259,17 +315,17 @@ Stop/redirect an arm when:
 
 ## Immediate execution order
 
-1. **MLP training-equivalence harness.**
-2. **Canonical CatBoost model export + exact TorchBoost import/checkpoint.**
-3. **CatBoost-anchor A1/A2 experiments: soft then oblique release.**
-4. **MLP-anchor B1/B2 experiments: function-preserving growth then residual
-   branch training.**
-5. Fix proposal-vs-refinement sampling and checkpointing in the progressive
-   trainer.
-6. Compare the first successful departures from both anchors.
-7. Only then decide whether affine packets, global end-to-end polish or latent
-   composition deserves the next major HIGGS campaign.
-8. Do not rerun 3M or the timed-out affine screen unchanged.
+1. **Freeze and record run 36525742176 as the current 500k development champion.**
+2. **Replicate fixed-vs-learned residual adapters on predeclared seeds.**
+3. If replication holds, add exactly one differentiable architectural degree
+   of freedom (routing strength/temperature is first choice) against the
+   learned-scale adapter control.
+4. Freeze architecture, regularization, and checkpoint-selection rules.
+5. **Only then open the fresh shadow audit once.**
+6. After the shadow result, scale the frozen architecture to 1M and 3M with
+   corrected exposure accounting and checkpointing.
+7. Benchmark compute/memory/inference and multiple external tabular datasets.
+8. Do not rerun the old 3M or timed-out affine mechanism screens unchanged.
 
 ## Current infrastructure status
 
