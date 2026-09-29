@@ -1,0 +1,245 @@
+"""Faithful differentiable analogue of the winning frozen-backbone adapter.
+
+The inherited canonical MLP affine packets and output head are frozen.
+All hidden layers receive one zero-at-birth residual tree refinement.
+
+TRAIN updates only residual packets and routing.
+SELECTION updates only the five positive residual scales.
+RANKING is evaluation only. The shadow audit is never opened.
+
+A fixed-scale adapter at sigmoid(-2) receives identical residual-training
+compute, so any gain from the learned-scale arm is attributable to held-out
+differentiable architecture learning rather than extra optimization.
+"""
+from __future__ import annotations
+
+import argparse
+from copy import deepcopy
+import json
+import math
+from pathlib import Path
+import time
+
+import numpy as np
+import torch
+from sklearn.preprocessing import StandardScaler
+
+from experiments.higgs_canonical_scaling import (
+    LOW_FEATURES, arrays, fixed_splits, materialize, metrics,
+)
+from experiments.higgs_hybrid_benchmark import MLP
+from experiments.higgs_differentiable_architecture import (
+    BATCH, probability, train_anchor,
+)
+from torchboost.adaptive.architecture_corners import CompositionalTreeNetwork
+from torchboost.adaptive.architecture_regularization import architecture_state
+
+NTRAIN=500_000
+SEED=509
+ADAPTER_EPOCHS=4
+SCALE_WARMUP_EPOCHS=2
+ARCH_EVERY=2
+INITIAL_SCALE=1.0/(1.0+math.exp(2.0))
+
+
+def build_adapter(anchor, *, learn_scales):
+    model=deepcopy(anchor)
+    for p in model.parameters():
+        p.requires_grad_(False)
+    for layer in model.layers:
+        layer.grow_one_level()
+        layer.set_architecture_scale(INITIAL_SCALE,learnable=learn_scales)
+        tree=layer.forest.trees[0]
+        root=layer.root
+        # Freeze inherited affine packet. Train only routing plus newborn
+        # residual packets, exactly matching the successful all_residual arm.
+        root.value.requires_grad_(False)
+        root.linear_value.requires_grad_(False)
+        if root.routing_weight is not None:
+            root.routing_weight.requires_grad_(True)
+        if root.routing_bias is not None:
+            root.routing_bias.requires_grad_(True)
+        for child_id in root.children_ids:
+            child=tree.get(child_id)
+            child.value.requires_grad_(True)
+            if child.linear_value is not None:
+                child.linear_value.requires_grad_(True)
+            child.allocation_logit.requires_grad_(False)
+    return model
+
+
+def partition(model):
+    scales=[];residual=[]
+    for name,p in model.named_parameters():
+        if not p.requires_grad:
+            continue
+        if name.endswith("architecture_logit"):
+            scales.append(p)
+        else:
+            residual.append(p)
+    if not residual:
+        raise RuntimeError("adapter has no residual parameters")
+    return residual,scales
+
+
+def train_adapter(
+    model,train_x,train_y,selection_x,selection_y,*,
+    epochs,seed,learn_scales,warmup_epochs,
+):
+    residual_params,scale_params=partition(model)
+    residual_opt=torch.optim.AdamW(residual_params,lr=1e-3,weight_decay=1e-5)
+    scale_opt=(
+        torch.optim.Adam(scale_params,lr=1e-2,weight_decay=0.)
+        if learn_scales else None
+    )
+    loss_fn=torch.nn.BCEWithLogitsLoss()
+    train_rng=torch.Generator().manual_seed(seed)
+    selection_rng=torch.Generator().manual_seed(seed+97)
+    best=(float("inf"),None,0,None)
+    history=[]
+    train_examples=0;selection_examples=0;scale_updates=0
+    started=time.perf_counter()
+
+    for epoch in range(epochs):
+        model.train()
+        order=torch.randperm(len(train_x),generator=train_rng)
+        sorder=torch.randperm(len(selection_x),generator=selection_rng)
+        scursor=0
+        for bi,start in enumerate(range(0,len(order),BATCH)):
+            idx=order[start:start+BATCH].numpy()
+            xb=torch.from_numpy(train_x[idx]);yb=torch.from_numpy(train_y[idx])
+            residual_opt.zero_grad(set_to_none=True)
+            if scale_opt is not None: scale_opt.zero_grad(set_to_none=True)
+            loss=loss_fn(model(xb),yb)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(residual_params,10.)
+            residual_opt.step()
+            train_examples+=len(idx)
+
+            if (
+                learn_scales and epoch>=warmup_epochs
+                and (bi+1)%ARCH_EVERY==0
+            ):
+                if scursor+BATCH>len(sorder):
+                    sorder=torch.randperm(len(selection_x),generator=selection_rng)
+                    scursor=0
+                sidx=sorder[scursor:scursor+BATCH].numpy();scursor+=BATCH
+                sx=torch.from_numpy(selection_x[sidx])
+                sy=torch.from_numpy(np.asarray(selection_y[sidx],dtype="float32"))
+                residual_opt.zero_grad(set_to_none=True);scale_opt.zero_grad(set_to_none=True)
+                # No direct scale penalty: held-out predictive evidence decides
+                # whether each perturbative adapter should shrink or grow.
+                sloss=loss_fn(model(sx),sy)
+                sloss.backward()
+                torch.nn.utils.clip_grad_norm_(scale_params,2.)
+                scale_opt.step()
+                selection_examples+=len(sidx);scale_updates+=1
+
+        sel=metrics(selection_y,probability(model,selection_x))
+        state=architecture_state(model)
+        row={"epoch":epoch+1,"selection":sel,"architecture":state}
+        history.append(row)
+        print(json.dumps({"learn_scales":learn_scales,**row}),flush=True)
+        if sel["nll"]<best[0]:
+            best=(
+                sel["nll"],
+                {k:v.detach().clone() for k,v in model.state_dict().items()},
+                epoch+1,state,
+            )
+
+    model.load_state_dict(best[1])
+    return {
+        "best_epoch":best[2],"best_architecture":best[3],"history":history,
+        "seconds":time.perf_counter()-started,
+        "train_examples_seen":train_examples,
+        "selection_examples_seen_by_scales":selection_examples,
+        "scale_updates":scale_updates,
+    }
+
+
+def run(csv_gz,cache,out,checkpoint_dir,seed=SEED):
+    torch.set_num_threads(4)
+    x_path,y_path,source=materialize(Path(csv_gz),Path(cache))
+    x,y=arrays(x_path,y_path);splits=fixed_splits(x,y,NTRAIN)
+    family_seed=seed+NTRAIN%10007
+    scaler=StandardScaler().fit(splits["train"][0])
+    train_x=scaler.transform(splits["train"][0]).astype("float32")
+    selection_x=scaler.transform(splits["selection"][0]).astype("float32")
+    ranking_x=scaler.transform(splits["ranking"][0]).astype("float32")
+    train_y=np.asarray(splits["train"][1],dtype="float32")
+
+    torch.manual_seed(family_seed+305)
+    reference=MLP(LOW_FEATURES,300,5,.1)
+    canonical_rng=torch.get_rng_state()
+    anchor=CompositionalTreeNetwork.from_mlp(
+        reference,max_tree_depth=3,seed=family_seed+1200
+    )
+    torch.set_rng_state(canonical_rng)
+    anchor_training=train_anchor(
+        anchor,train_x,train_y,selection_x,splits["selection"][1],family_seed
+    )
+    anchor_sel=metrics(splits["selection"][1],probability(anchor,selection_x))
+    anchor_rank=metrics(splits["ranking"][1],probability(anchor,ranking_x))
+
+    fixed=build_adapter(anchor,learn_scales=False)
+    learned=build_adapter(anchor,learn_scales=True)
+    probe=selection_x[:8192]
+    for name,model in (("fixed",fixed),("learned",learned)):
+        diff=float(np.max(np.abs(probability(model,probe)-probability(anchor,probe))))
+        if diff>3e-6: raise RuntimeError(f"{name} adapter changed birth function: {diff}")
+
+    training_seed=family_seed+19001
+    fixed_training=train_adapter(
+        fixed,train_x,train_y,selection_x,splits["selection"][1],
+        epochs=ADAPTER_EPOCHS,seed=training_seed,learn_scales=False,warmup_epochs=0
+    )
+    learned_training=train_adapter(
+        learned,train_x,train_y,selection_x,splits["selection"][1],
+        epochs=ADAPTER_EPOCHS,seed=training_seed,learn_scales=True,
+        warmup_epochs=SCALE_WARMUP_EPOCHS
+    )
+
+    fixed_sel=metrics(splits["selection"][1],probability(fixed,selection_x))
+    fixed_rank=metrics(splits["ranking"][1],probability(fixed,ranking_x))
+    learned_sel=metrics(splits["selection"][1],probability(learned,selection_x))
+    learned_rank=metrics(splits["ranking"][1],probability(learned,ranking_x))
+
+    checkpoint_dir=Path(checkpoint_dir);checkpoint_dir.mkdir(parents=True,exist_ok=True)
+    torch.save({"state":fixed.state_dict()},checkpoint_dir/"fixed-adapter.pt")
+    torch.save(
+        {"state":learned.state_dict(),"architecture":architecture_state(learned)},
+        checkpoint_dir/"learned-scale-adapter.pt"
+    )
+    result={
+        "status":"completed","source":source,"seed":seed,"family_seed":family_seed,
+        "ntrain":NTRAIN,"audit_opened":False,"shadow_audit_opened":False,
+        "protocol":"experiments/higgs_shadow_protocol.json",
+        "initial_scale":INITIAL_SCALE,
+        "anchor":{"selection":anchor_sel,"ranking":anchor_rank,**anchor_training},
+        "fixed_adapter":{"selection":fixed_sel,"ranking":fixed_rank,**fixed_training},
+        "learned_scale_adapter":{
+            "selection":learned_sel,"ranking":learned_rank,
+            "architecture":architecture_state(learned),**learned_training
+        },
+        "deltas":{
+            "learned_selection_nll_vs_fixed":learned_sel["nll"]-fixed_sel["nll"],
+            "learned_ranking_nll_vs_fixed":learned_rank["nll"]-fixed_rank["nll"],
+            "learned_ranking_auc_vs_fixed":learned_rank["auc"]-fixed_rank["auc"],
+            "learned_ranking_nll_vs_anchor":learned_rank["nll"]-anchor_rank["nll"],
+            "learned_ranking_auc_vs_anchor":learned_rank["auc"]-anchor_rank["auc"],
+        },
+    }
+    Path(out).write_text(json.dumps(result,indent=2,sort_keys=True,allow_nan=False))
+    return result
+
+
+if __name__=="__main__":
+    p=argparse.ArgumentParser()
+    p.add_argument("--csv-gz",required=True)
+    p.add_argument("--cache",default="/tmp/higgs-cache")
+    p.add_argument("--out",required=True)
+    p.add_argument("--checkpoint-dir",default="research-results/differentiable-adapter-checkpoints")
+    p.add_argument("--seed",type=int,default=SEED)
+    a=p.parse_args()
+    answer=run(a.csv_gz,a.cache,a.out,a.checkpoint_dir,a.seed)
+    print(json.dumps(answer,indent=2,sort_keys=True,allow_nan=False))
