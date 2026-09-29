@@ -1,32 +1,24 @@
-"""Synthetic v2 calibration for a data-adaptive CatBoost-corner prior.
+"""Synthetic v3 trust-region evolution from the CatBoost corner.
 
 This study intentionally does NOT touch any external benchmark dataset or the
 locked HIGGS shadow audit.
 
-v2 fixes two problems found by the first synthetic screen:
-1. train and ranking samples now share one fixed latent data-generating
-   mechanism, so oblique/mixed ranking really is out-of-sample rather than a
-   different target function;
-2. residual capacity is released only from nested cross-fitted evidence.
-   The same rows are never used both to fit a candidate residual and to decide
-   whether that residual earns architecture capacity.
+v3 changes the control objective:
+- CatBoost is an initialization/local chart, not an absorbing endpoint.
+- The final model must remain a distinct TorchBoost hybrid: exact zero residual
+  capacity is not admissible.
+- A small trust radius is always retained ("harmless jitter").
+- Cross-fitted evidence chooses a direction away from CatBoost and controls
+  expansion/contraction of the radius.
+- Weak or adverse evidence contracts to the minimum radius rather than
+  collapsing to CatBoost.
 
-Protocol:
-- draw one latent problem per (regime, seed), then independent train/ranking
-  samples from that same problem;
-- compute cheap train-only regime statistics and a conservative residual prior;
-- use 3 outer folds for architecture evidence;
-- inside each outer-training fold, build OOF CatBoost logits with 3 inner folds,
-  fit a TorchBoost residual against those honest anchor logits, then score a
-  predeclared gate grid on the untouched outer fold;
-- aggregate outer-fold evidence and release a nonzero gate only when improvement
-  is stable (positive mean improvement and at least 2/3 folds improve);
-- refit the residual using full-data OOF CatBoost logits with the selected gate;
-- fit CatBoost on all training rows and evaluate both models on a fresh ranking
-  sample from the same latent problem.
+The local departure basis contains three TorchBoost residual directions with
+different capacities. The basis is deliberately simple for synthetic
+calibration; later real-model work can replace these with semantic mechanism
+directions (hard/oblique/affine/rate/neural).
 
-No permanent validation split is consumed and no real benchmark dataset is
-opened by this experiment.
+No permanent validation split is consumed.
 """
 from __future__ import annotations
 
@@ -45,6 +37,14 @@ from sklearn.preprocessing import StandardScaler
 
 from experiments.higgs_hybrid_benchmark import MLP
 from torchboost.adaptive.architecture_corners import CompositionalTreeNetwork
+
+
+DIRECTIONS = {
+    "local_shallow": {"width": 64, "depth": 2, "grow": 1},
+    "local_medium": {"width": 96, "depth": 3, "grow": 1},
+    "local_deep": {"width": 128, "depth": 4, "grow": 2},
+}
+MIN_RADIUS = 0.01
 
 
 def _sigmoid(x):
@@ -99,7 +99,12 @@ def sample_problem(problem, n, seed):
     elif regime == "oblique_dense":
         w = problem["w"]
         v = problem["v"]
-        z = 2.2 * (x @ w) + 1.15 * np.sin(1.4 * (x @ v)) + 0.45 * (x[:, 0] * x[:, 1]) - 0.15
+        z = (
+            2.2 * (x @ w)
+            + 1.15 * np.sin(1.4 * (x @ v))
+            + 0.45 * (x[:, 0] * x[:, 1])
+            - 0.15
+        )
     elif regime == "mixed":
         w = problem["w"]
         z = (
@@ -127,12 +132,11 @@ def regime_stats(x, y):
         corrs.append(0.0 if den == 0 else abs(float(np.sum(xc * yc) / den)))
     corrs = np.sort(np.asarray(corrs))[::-1]
     total = float(corrs.sum() + 1e-12)
-    top4 = float(corrs[: min(4, p)].sum() / total)
     return {
         "n": int(n),
         "p": int(p),
         "log10_n": float(np.log10(max(n, 1))),
-        "top4_marginal_signal_share": top4,
+        "top4_marginal_signal_share": float(corrs[: min(4, p)].sum() / total),
         "value_sparsity": float(np.mean(np.abs(x) < 1e-8)),
         "class_imbalance": float(abs(y.mean() - 0.5) * 2),
     }
@@ -150,22 +154,27 @@ def residual_prior(stats):
         + 0.20 * stats["class_imbalance"]
     )
     mean = 0.08 + 0.48 * size - 0.28 * tree_evidence
-    return float(np.clip(mean, 0.03, 0.70))
+    return float(np.clip(mean, MIN_RADIUS, 0.50))
 
 
-def gate_grid(prior):
-    # Zero is always admissible. The nonzero candidates are predeclared
-    # deformations around the train-only prior, with a conservative ceiling.
-    vals = [0.0, 0.5 * prior, prior, min(0.50, 2.0 * prior)]
-    return sorted({float(np.clip(v, 0.0, 0.50)) for v in vals})
+def radius_grid(prior):
+    vals = [
+        MIN_RADIUS,
+        max(MIN_RADIUS, 0.5 * prior),
+        max(MIN_RADIUS, prior),
+        min(0.50, max(MIN_RADIUS, 2.0 * prior)),
+    ]
+    return sorted({float(np.clip(v, MIN_RADIUS, 0.50)) for v in vals})
 
 
-def build_residual(p, seed):
+def build_residual(p, direction, seed):
+    cfg = DIRECTIONS[direction]
     torch.manual_seed(seed)
-    base = MLP(p, 96, 3, 0.05)
-    model = CompositionalTreeNetwork.from_mlp(base, max_tree_depth=2, seed=seed + 17)
+    base = MLP(p, cfg["width"], cfg["depth"], 0.05)
+    model = CompositionalTreeNetwork.from_mlp(base, max_tree_depth=3, seed=seed + 17)
     for layer in model.layers:
-        layer.grow_one_level()
+        for _ in range(cfg["grow"]):
+            layer.grow_one_level()
     return model
 
 
@@ -209,16 +218,8 @@ def oof_cat_logits(x, y, seed, folds=3):
     return out, retained
 
 
-def train_residual_fixed_gate(
-    x,
-    y,
-    base_logits,
-    gate,
-    seed,
-    epochs=18,
-    batch=256,
-):
-    model = build_residual(x.shape[1], seed)
+def train_residual(x, y, base_logits, radius, direction, seed, epochs=18, batch=256):
+    model = build_residual(x.shape[1], direction, seed)
     params = list(model.parameters())
     opt = torch.optim.AdamW(params, lr=8e-4, weight_decay=1e-5)
     loss_fn = torch.nn.BCEWithLogitsLoss()
@@ -233,13 +234,13 @@ def train_residual_fixed_gate(
         for start in range(0, len(order), batch):
             idx = order[start : start + batch]
             opt.zero_grad(set_to_none=True)
-            logits = bt[idx] + float(gate) * model(xt[idx])
+            logits = bt[idx] + float(radius) * model(xt[idx])
             loss = loss_fn(logits, yt[idx])
             loss.backward()
             torch.nn.utils.clip_grad_norm_(params, 10.0)
             opt.step()
         with torch.no_grad():
-            p = torch.sigmoid(bt + float(gate) * model(xt)).numpy()
+            p = torch.sigmoid(bt + float(radius) * model(xt)).numpy()
             score = metrics(y, p)["nll"]
         if score < best[0]:
             best = (
@@ -253,8 +254,9 @@ def train_residual_fixed_gate(
 
 def architecture_evidence(x, y, prior, seed):
     outer = StratifiedKFold(n_splits=3, shuffle=True, random_state=seed + 501)
-    candidates = gate_grid(prior)
+    radii = radius_grid(prior)
     fold_records = []
+
     for fold, (tr, va) in enumerate(outer.split(x, y)):
         train_x, train_y = x[tr], y[tr]
         val_x, val_y = x[va], y[va]
@@ -262,31 +264,40 @@ def architecture_evidence(x, y, prior, seed):
         inner_logits, inner_trees = oof_cat_logits(
             train_x, train_y, seed + 10000 + fold * 100
         )
-        exploratory_gate = max(prior, 0.08)
-        residual, best_epoch, inner_nll = train_residual_fixed_gate(
-            train_x,
-            train_y,
-            inner_logits,
-            exploratory_gate,
-            seed + 20000 + fold * 100,
-        )
-
         anchor = cat_model(seed + 30000 + fold)
         anchor.fit(train_x, train_y, verbose=False)
         anchor_p = anchor.predict_proba(val_x)[:, 1]
         anchor_logits = _logit(anchor_p)
-        rv = residual_values(residual, val_x)
         anchor_nll = metrics(val_y, anchor_p)["nll"]
 
-        scored = {}
-        for gate in candidates:
-            p = _sigmoid(anchor_logits + gate * rv)
-            m = metrics(val_y, p)
-            scored[str(gate)] = {
-                "nll": m["nll"],
-                "auc": m["auc"],
-                "delta_nll_vs_anchor": m["nll"] - anchor_nll,
+        directions = {}
+        for di, direction in enumerate(DIRECTIONS):
+            exploratory_radius = max(MIN_RADIUS, min(0.20, prior))
+            residual, best_epoch, inner_nll = train_residual(
+                train_x,
+                train_y,
+                inner_logits,
+                exploratory_radius,
+                direction,
+                seed + 20000 + fold * 1000 + di * 100,
+            )
+            rv = residual_values(residual, val_x)
+            scored = {}
+            for radius in radii:
+                p = _sigmoid(anchor_logits + radius * rv)
+                m = metrics(val_y, p)
+                scored[str(radius)] = {
+                    "nll": m["nll"],
+                    "auc": m["auc"],
+                    "delta_nll_vs_anchor": m["nll"] - anchor_nll,
+                }
+            directions[direction] = {
+                "exploratory_radius": exploratory_radius,
+                "residual_best_epoch": best_epoch,
+                "inner_oof_training_nll": inner_nll,
+                "candidates": scored,
             }
+
         fold_records.append(
             {
                 "fold": fold,
@@ -294,41 +305,62 @@ def architecture_evidence(x, y, prior, seed):
                 "rows_evidence": int(len(va)),
                 "inner_oof_catboost_trees": inner_trees,
                 "anchor_trees": int(anchor.tree_count_),
-                "exploratory_gate": exploratory_gate,
-                "residual_best_epoch": best_epoch,
-                "inner_oof_training_nll": inner_nll,
                 "anchor_evidence_nll": anchor_nll,
-                "candidates": scored,
+                "directions": directions,
             }
         )
 
     summary = {}
-    for gate in candidates:
-        key = str(gate)
-        deltas = np.asarray(
-            [record["candidates"][key]["delta_nll_vs_anchor"] for record in fold_records],
-            dtype=float,
-        )
-        summary[key] = {
-            "mean_delta_nll": float(deltas.mean()),
-            "median_delta_nll": float(np.median(deltas)),
-            "improving_folds": int(np.sum(deltas < 0)),
-            "fold_deltas": [float(v) for v in deltas],
-        }
+    for direction in DIRECTIONS:
+        summary[direction] = {}
+        for radius in radii:
+            key = str(radius)
+            deltas = np.asarray(
+                [
+                    record["directions"][direction]["candidates"][key][
+                        "delta_nll_vs_anchor"
+                    ]
+                    for record in fold_records
+                ],
+                dtype=float,
+            )
+            summary[direction][key] = {
+                "mean_delta_nll": float(deltas.mean()),
+                "median_delta_nll": float(np.median(deltas)),
+                "std_delta_nll": float(deltas.std(ddof=0)),
+                "improving_folds": int(np.sum(deltas < 0)),
+                "fold_deltas": [float(v) for v in deltas],
+            }
 
-    # "Proof of usefulness before freedom": a nonzero gate must improve at
-    # least two outer folds and improve mean outer-fold NLL. Among admissible
-    # gates choose the one with best mean delta. Otherwise stay exactly at the
-    # CatBoost corner.
+    # Expansion rule: expand beyond minimum jitter only with consistent evidence.
+    # If no expanded candidate qualifies, choose the direction with the smallest
+    # mean degradation/improvement at MIN_RADIUS. Thus the model always remains
+    # a nonzero TorchBoost hybrid.
     eligible = []
-    for gate in candidates:
-        if gate == 0.0:
-            continue
-        s = summary[str(gate)]
-        if s["improving_folds"] >= 2 and s["mean_delta_nll"] < 0:
-            eligible.append((s["mean_delta_nll"], gate))
-    selected = min(eligible)[1] if eligible else 0.0
-    return selected, candidates, fold_records, summary
+    for direction in DIRECTIONS:
+        for radius in radii:
+            if radius <= MIN_RADIUS + 1e-12:
+                continue
+            s = summary[direction][str(radius)]
+            stderr = s["std_delta_nll"] / math.sqrt(3.0)
+            # Require 2/3 folds improving and mean gain exceeding a modest
+            # noise margin. This is stricter than v2's sign-only rule.
+            if s["improving_folds"] >= 2 and s["mean_delta_nll"] < -0.5 * stderr:
+                eligible.append((s["mean_delta_nll"], direction, radius))
+
+    if eligible:
+        _, selected_direction, selected_radius = min(eligible)
+        mode = "expanded"
+    else:
+        jitter = []
+        for direction in DIRECTIONS:
+            s = summary[direction][str(MIN_RADIUS)]
+            jitter.append((s["mean_delta_nll"], direction))
+        _, selected_direction = min(jitter)
+        selected_radius = MIN_RADIUS
+        mode = "minimum_jitter"
+
+    return selected_direction, selected_radius, mode, radii, fold_records, summary
 
 
 def run(regime, n, seed, out):
@@ -345,39 +377,39 @@ def run(regime, n, seed, out):
 
     stats = regime_stats(x, y)
     prior = residual_prior(stats)
-    selected_gate, candidates, fold_records, evidence = architecture_evidence(
-        x, y, prior, seed
-    )
+    (
+        selected_direction,
+        selected_radius,
+        mode,
+        radii,
+        fold_records,
+        evidence,
+    ) = architecture_evidence(x, y, prior, seed)
 
     full_oof_logits, full_oof_trees = oof_cat_logits(x, y, seed + 60000)
-    if selected_gate > 0:
-        residual, final_best_epoch, full_oof_nll = train_residual_fixed_gate(
-            x,
-            y,
-            full_oof_logits,
-            selected_gate,
-            seed + 70000,
-            epochs=24,
-        )
-    else:
-        residual = None
-        final_best_epoch = 0
-        full_oof_nll = metrics(y, _sigmoid(full_oof_logits))["nll"]
+    direction_index = list(DIRECTIONS).index(selected_direction)
+    residual, final_best_epoch, full_oof_nll = train_residual(
+        x,
+        y,
+        full_oof_logits,
+        selected_radius,
+        selected_direction,
+        seed + 70000 + direction_index * 100,
+        epochs=24,
+    )
 
     cat = cat_model(seed + 90000)
     cat.fit(x, y, verbose=False)
     base_p = cat.predict_proba(qx)[:, 1]
     base_logits = _logit(base_p)
-
-    if residual is None:
-        hybrid_p = base_p.copy()
-    else:
-        hybrid_p = _sigmoid(base_logits + selected_gate * residual_values(residual, qx))
+    hybrid_p = _sigmoid(
+        base_logits + selected_radius * residual_values(residual, qx)
+    )
 
     base_m = metrics(qy, base_p)
     hybrid_m = metrics(qy, hybrid_p)
     result = {
-        "study": "synthetic_cat_corner_progressive_release_v2",
+        "study": "synthetic_cat_corner_trust_region_v3",
         "regime": regime,
         "seed": seed,
         "train_rows": int(n),
@@ -386,11 +418,15 @@ def run(regime, n, seed, out):
         "same_latent_problem_train_and_ranking": True,
         "train_only_stats": stats,
         "controller": {
-            "prior_residual_gate": prior,
-            "candidate_gates": candidates,
-            "selected_residual_gate": selected_gate,
-            "released": bool(selected_gate > 0),
-            "release_rule": "mean_delta_nll<0 and >=2/3 outer folds improve",
+            "prior_residual_radius": prior,
+            "minimum_radius": MIN_RADIUS,
+            "candidate_radii": radii,
+            "directions": DIRECTIONS,
+            "selected_direction": selected_direction,
+            "selected_radius": selected_radius,
+            "selection_mode": mode,
+            "exact_catboost_fallback_allowed": False,
+            "expansion_rule": ">=2/3 folds improve and mean_delta_nll < -0.5*stderr",
             "outer_fold_evidence": fold_records,
             "candidate_summary": evidence,
             "full_oof_catboost_retained_trees": full_oof_trees,
