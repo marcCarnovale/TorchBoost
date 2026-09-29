@@ -87,7 +87,48 @@ controller configuration from changing meaning merely because a tree grows.
 
 ## Current evidence
 
-Recorded development results include:
+### HIGGS architecture-space result
+
+The current research branch treats CatBoost and a five-layer ReLU MLP as
+calibrated corners inside a larger TorchBoost architecture space rather than
+defining TorchBoost as one historical progressive-forest configuration.
+
+On the canonical 500k-row, 21-feature HIGGS protocol:
+
+- the depth-zero compositional TorchBoost endpoint reproduces the canonical MLP
+  training path exactly;
+- imported numerical CatBoost symmetric trees reproduce the fitted CatBoost
+  predictor to numerical precision;
+- growing zero-at-birth affine tree residual adapters in all five hidden layers,
+  freezing the inherited MLP backbone/head, and training only the residual
+  packets/routing improves materially over the MLP anchor;
+- most importantly, held-out differentiable learning of the five residual
+  scales improves over an otherwise identical fixed-scale adapter.
+
+The decisive differentiable-adapter study is GitHub Actions run
+`36525742176`, source SHA
+`265a8e040a060080d198bb5fce5578a1ccc1825f`.  Both arms begin at residual
+scale `sigmoid(-2) = 0.1192029` and receive the same residual/routing training
+budget.  The fixed-scale adapter reached ranking NLL/AUC
+`0.57106812 / 0.76946808`; the held-out learned-scale adapter reached
+`0.57049915 / 0.76991939`, an improvement of `-0.00056897` NLL and
+`+0.00045131` AUC from architecture-scale learning itself.  Relative to the
+canonical MLP anchor in the same study, the learned adapter improved ranking by
+about `-0.00304` NLL and `+0.00445` AUC.
+
+The learned residual scales were approximately
+`[0.1329, 0.0923, 0.0644, 0.0423, 0.0385]`: a data-selected taper from a
+slightly strengthened first-layer correction to progressively smaller deeper
+corrections.  This is evidence that differentiable held-out architecture
+learning can discover a better hybrid point inside this restricted adapter
+family, not merely that TorchBoost can represent one.
+
+These are **selection/ranking development results**.  The fresh shadow audit
+defined in `experiments/higgs_shadow_protocol.json` remains unopened.  No
+claim of final unseen-test or broad benchmark superiority is made from these
+numbers.
+
+Recorded development results also include:
 
 - one affine-residual power-tree configuration beating a much larger CatBoost ensemble on a controlled
   context-dependent affine problem; this is a development result, not a broad leaderboard claim;
