@@ -107,7 +107,8 @@ def adaptive_train(x,y,base_logits,prior,seed):
         if prev_winner==winner: winner_streak+=1
         else: winner_streak=1
         changed=prev_winner is not None and winner!=prev_winner
-        mean_arch=float(np.mean(arch_losses)) if arch_losses else float("nan")
+        mean_arch=float(np.mean(arch_losses)) if arch_losses else None
+        drift_json=float(drift) if np.isfinite(drift) else None
         history.append({"cycle":cycle,"architecture_updates":arch_updates,"temperature":temp,
             "entropy_reward":entropy_coef,"exploration_floor":floor,"radius":r,
             "weights":{k:float(z) for k,z in zip(v6.EXPERT_NAMES,w)},
