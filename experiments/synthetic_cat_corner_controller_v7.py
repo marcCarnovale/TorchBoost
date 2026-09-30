@@ -112,7 +112,7 @@ def adaptive_train(x,y,base_logits,prior,seed):
             "entropy_reward":entropy_coef,"exploration_floor":floor,"radius":r,
             "weights":{k:float(z) for k,z in zip(v6.EXPERT_NAMES,w)},
             "winner":v6.EXPERT_NAMES[winner],"winner_streak":winner_streak,
-            "weight_l1_drift":drift,"architecture_stream_loss":mean_arch,
+            "weight_l1_drift":drift_json,"architecture_stream_loss":mean_arch,
             "role_model_rows":int(len(model_idx)),"role_arch_rows":int(len(arch_idx))})
 
         # If exploitation was triggered but the winner breaks, re-open search.
@@ -143,7 +143,7 @@ def adaptive_train(x,y,base_logits,prior,seed):
             recent=history[-3:]
             stable=(cycle>=MIN_CYCLES and arch_updates>=TARGET_ARCH_UPDATES and
                     winner_streak>=3 and len(recent)==3 and
-                    all(np.isfinite(h["weight_l1_drift"]) and h["weight_l1_drift"]<0.06 for h in recent))
+                    all(h["weight_l1_drift"] is not None and h["weight_l1_drift"]<0.06 for h in recent))
             if stable:
                 exploit_left=EXPLOIT_CYCLES
                 temp=MIN_TEMP; entropy_coef=0.0; floor=MIN_FLOOR
