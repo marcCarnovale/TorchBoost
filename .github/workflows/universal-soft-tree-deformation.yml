@@ -1,0 +1,46 @@
+name: Universal soft-tree deformation screen
+
+on:
+  push:
+    branches: [research/universal-soft-tree-2026-10-01]
+    paths:
+      - 'experiments/universal_soft_tree_deformation.py'
+      - '.github/workflows/universal-soft-tree-deformation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  screen:
+    strategy:
+      fail-fast: false
+      matrix:
+        regime: [axis, oblique, ridge, interaction, regional_mix]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      OMP_NUM_THREADS: "4"
+      MKL_NUM_THREADS: "4"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install pinned benchmark environment
+        run: |
+          python -m pip install 'torch==2.14.0' --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e '.[dev,benchmark]' -c research-constraints-2026-09-25.txt
+      - name: Run universal soft-tree regime
+        run: |
+          mkdir -p results
+          python -u experiments/universal_soft_tree_deformation.py \
+            --regime ${{ matrix.regime }} --seed 733 \
+            --out results/${{ matrix.regime }}.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: universal-soft-tree-${{ matrix.regime }}
+          path: results/
+          if-no-files-found: warn
