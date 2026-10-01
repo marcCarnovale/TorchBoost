@@ -4,7 +4,7 @@ on:
   push:
     branches: [research/unified-progressive-2026-09-24]
     paths:
-      - 'experiments/synthetic_cat_corner_controller_v8.py'
+      - 'experiments/synthetic_cat_corner_controller_v9.py'
       - '.github/workflows/synthetic-cat-corner-controller.yml'
   workflow_dispatch:
 
@@ -34,11 +34,11 @@ jobs:
         run: |
           python -m pip install 'torch==2.14.0' --index-url https://download.pytorch.org/whl/cpu
           python -m pip install -e '.[dev,benchmark]' -c research-constraints-2026-09-25.txt
-      - name: Run matched-anchor nested controller
+      - name: Run preserved-function ensemble
         run: |
           set -euo pipefail
           mkdir -p results
-          python -u experiments/synthetic_cat_corner_controller_v8.py \
+          python -u experiments/synthetic_cat_corner_controller_v9.py \
             --regime ${{ matrix.regime }} \
             --n ${{ matrix.n }} \
             --seed ${{ matrix.seed }} \
@@ -46,6 +46,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: synthetic-cat-corner-v8-${{ matrix.regime }}-n${{ matrix.n }}-s${{ matrix.seed }}
+          name: synthetic-cat-corner-v9-${{ matrix.regime }}-n${{ matrix.n }}-s${{ matrix.seed }}
           path: results/
           if-no-files-found: warn
