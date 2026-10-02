@@ -46,11 +46,11 @@ MAX_DEPTH = 4
 RANK = 4
 
 # Fixed across every regime.  These are structural priors, not tuned per task.
-BRANCH_COST = 1.4e-3
-ROUTE_L1 = 1.0e-4
-AFFINE_COST = 2.0e-4
-INTERACTION_COST = 3.0e-4
-VALUE_L2 = 2.0e-6
+BRANCH_COST = 5.0e-3
+OBLIQUE_COST = 2.0e-3
+AFFINE_COST = 1.0e-3
+INTERACTION_COST = 6.0e-3
+VALUE_L2 = 1.0e-4
 
 
 class UniversalSoftTree(nn.Module):
