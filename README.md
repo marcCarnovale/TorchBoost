@@ -123,6 +123,21 @@ corrections.  This is evidence that differentiable held-out architecture
 learning can discover a better hybrid point inside this restricted adapter
 family, not merely that TorchBoost can represent one.
 
+The replicated adapter mechanism is now centralized in
+`torchboost/adaptive/residual_adapter.py`; HIGGS and external-transfer studies
+use the same function-preserving model surgery rather than maintaining separate
+copies.
+
+A frozen external-transfer benchmark is also running across seven public
+OpenML binary datasets and five predeclared seeds. It compares the learned
+adapter against its MLP anchor, the identical fixed-scale adapter, CatBoost,
+XGBoost, and LightGBM under train-only preprocessing and paired
+train/selection/ranking splits. The workflow emits machine-readable per-cell
+records plus an aggregate report with paired deltas, win/tie/loss counts,
+standard errors, and deterministic bootstrap intervals. See
+`research/external_adapter_benchmark_protocol.md`. No external benchmark
+result is claimed here until that frozen matrix completes.
+
 These are **selection/ranking development results**.  The fresh shadow audit
 defined in `experiments/higgs_shadow_protocol.json` remains unopened.  No
 claim of final unseen-test or broad benchmark superiority is made from these
