@@ -44,7 +44,7 @@ from xgboost import XGBClassifier
 from experiments.higgs_hybrid_benchmark import MLP
 from torchboost.adaptive.architecture_corners import CompositionalTreeNetwork
 from torchboost.adaptive.architecture_regularization import architecture_state
-
+from torchboost.adaptive.residual_adapter import (\n    grow_frozen_backbone_adapter,\n    partition_adapter_parameters,\n)\n
 PROTOCOL_VERSION = "external-adapter-v2-frozen"
 DATASETS = {
     "phoneme": 44127,
@@ -177,38 +177,11 @@ def train_anchor(model, train_x, train_y, sel_x, sel_y, *, epochs, batch, seed):
 
 
 def build_adapter(anchor, learn_scales):
-    model = deepcopy(anchor)
-    for p in model.parameters():
-        p.requires_grad_(False)
-    for layer in model.layers:
-        layer.grow_one_level()
-        layer.set_architecture_scale(INITIAL_SCALE, learnable=learn_scales)
-        tree = layer.forest.trees[0]
-        root = layer.root
-        root.value.requires_grad_(False)
-        root.linear_value.requires_grad_(False)
-        if root.routing_weight is not None:
-            root.routing_weight.requires_grad_(True)
-        if root.routing_bias is not None:
-            root.routing_bias.requires_grad_(True)
-        for cid in root.children_ids:
-            child = tree.get(cid)
-            child.value.requires_grad_(True)
-            if child.linear_value is not None:
-                child.linear_value.requires_grad_(True)
-            child.allocation_logit.requires_grad_(False)
-    return model
+    return grow_frozen_backbone_adapter(anchor, learn_scales=learn_scales)
 
 
 def partition(model):
-    residual, scales = [], []
-    for name, p in model.named_parameters():
-        if not p.requires_grad:
-            continue
-        (scales if name.endswith("architecture_logit") else residual).append(p)
-    if not residual:
-        raise RuntimeError("adapter has no residual parameters")
-    return residual, scales
+    return partition_adapter_parameters(model)
 
 
 def train_adapter(
