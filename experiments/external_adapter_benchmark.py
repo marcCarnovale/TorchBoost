@@ -44,7 +44,11 @@ from xgboost import XGBClassifier
 from experiments.higgs_hybrid_benchmark import MLP
 from torchboost.adaptive.architecture_corners import CompositionalTreeNetwork
 from torchboost.adaptive.architecture_regularization import architecture_state
-from torchboost.adaptive.residual_adapter import (\n    grow_frozen_backbone_adapter,\n    partition_adapter_parameters,\n)\n
+from torchboost.adaptive.residual_adapter import (
+    grow_frozen_backbone_adapter,
+    partition_adapter_parameters,
+)
+
 PROTOCOL_VERSION = "external-adapter-v2-frozen"
 DATASETS = {
     "phoneme": 44127,
