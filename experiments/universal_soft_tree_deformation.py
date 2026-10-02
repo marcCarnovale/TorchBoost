@@ -116,17 +116,20 @@ class UniversalSoftTree(nn.Module):
     def reach_weights(self) -> torch.Tensor:
         """Expected structural reach independent of left/right probability.
 
-        Since child routing probabilities sum to one, total descendant mass is
-        controlled by branch existence. We split it evenly only to assign a
-        symmetric regularization budget before seeing a particular batch.
+        This is deliberately functional rather than an indexed in-place build:
+        branch reach itself is differentiable, so autograd must retain the full
+        parent->child graph without tensor version mutations.
         """
-        reach = self.branch_logit.new_zeros(self.n_nodes)
-        reach[0] = 1.0
-        for node in range(self.n_internal):
-            child_mass = reach[node] * torch.sigmoid(self.branch_logit[node])
-            reach[2 * node + 1] = child_mass * .5
-            reach[2 * node + 2] = child_mass * .5
-        return reach
+        levels = [self.branch_logit.new_ones(1)]
+        offset = 0
+        for depth in range(self.max_depth):
+            parent = levels[-1]
+            count = 2 ** depth
+            gate = torch.sigmoid(self.branch_logit[offset:offset + count])
+            child_mass = parent * gate * .5
+            levels.append(torch.stack((child_mass, child_mass), dim=1).reshape(-1))
+            offset += count
+        return torch.cat(levels)
 
     def complexity(self, progress: float) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         reach = self.reach_weights()
