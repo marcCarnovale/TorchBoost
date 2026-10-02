@@ -5,6 +5,8 @@ import pytest
 import torch
 from torch import nn
 
+import experiments.higgs_differentiable_adapter as adapter_experiment
+
 from experiments.higgs_differentiable_adapter import (
     INITIAL_SCALE,
     build_adapter,
@@ -79,7 +81,8 @@ def test_fixed_adapter_has_no_trainable_scale_parameters():
     assert scales==[]
 
 
-def test_train_and_selection_scale_sources_have_matched_update_counts():
+def test_train_and_selection_scale_sources_have_matched_update_counts(monkeypatch):
+    monkeypatch.setattr(adapter_experiment, "BATCH", 32)
     rng=np.random.default_rng(17)
     x=rng.normal(size=(128,4)).astype("float32")
     y=(x[:,0]+0.4*x[:,1]>0).astype("float32")
