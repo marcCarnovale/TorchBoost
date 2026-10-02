@@ -47,7 +47,7 @@ RANK = 4
 
 # Fixed across every regime.  These are structural priors, not tuned per task.
 BRANCH_COST = 5.0e-3
-OBLIQUE_COST = 2.0e-3
+ROUTE_ENTROPY_COST = 2.0e-3
 AFFINE_COST = 1.0e-3
 INTERACTION_COST = 6.0e-3
 VALUE_L2 = 1.0e-4
@@ -66,10 +66,13 @@ class UniversalSoftTree(nn.Module):
 
         # Routing starts weak and generic. Sparsity pressure can collapse a dense
         # hyperplane toward an axis split; nothing selects an "oblique expert".
-        self.route_w = nn.Parameter(torch.empty(self.n_internal, p))
+        # A signed simplex makes an axis split a literal low-entropy corner of
+        # the same differentiable routing family.  The first p coordinates are
+        # +e_j and the next p are -e_j; mixtures are fully oblique directions.
+        self.route_logits = nn.Parameter(torch.empty(self.n_internal, 2 * p))
         self.route_b = nn.Parameter(torch.zeros(self.n_internal))
         self.route_log_sharp = nn.Parameter(torch.zeros(self.n_internal))
-        nn.init.normal_(self.route_w, std=.04)
+        nn.init.normal_(self.route_logits, std=.03)
 
         # A potential branch begins partially open so descendants receive a
         # usable gradient. Complexity rent can close it; predictive gain can
@@ -89,6 +92,13 @@ class UniversalSoftTree(nn.Module):
         nn.init.normal_(self.ia, std=.05)
         nn.init.normal_(self.ib, std=.05)
 
+    def route_state(self) -> tuple[torch.Tensor, torch.Tensor]:
+        weights = torch.softmax(self.route_logits / .5, dim=1)
+        signed = weights[:, :self.p] - weights[:, self.p:]
+        direction = signed / signed.norm(dim=1, keepdim=True).clamp_min(1e-6)
+        entropy = -(weights * weights.clamp_min(1e-12).log()).sum(1)
+        return direction, entropy
+
     def local_value(self, x: torch.Tensor) -> torch.Tensor:
         # [batch, nodes]
         affine = x @ self.affine.T
@@ -99,6 +109,7 @@ class UniversalSoftTree(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         local = self.local_value(x)
+        directions, _ = self.route_state()
         values = [None] * self.n_nodes
 
         # Bottom-up recursive soft tree. s_v=0 means "stop here"; s_v=1 means
@@ -106,9 +117,8 @@ class UniversalSoftTree(nn.Module):
         for node in range(self.n_nodes - 1, -1, -1):
             here = local[:, node]
             if node < self.n_internal:
-                direction = self.route_w[node] / self.route_w[node].norm().clamp_min(1e-6)
                 sharp = .5 + torch.nn.functional.softplus(self.route_log_sharp[node])
-                prob = torch.sigmoid(sharp * (x @ direction + self.route_b[node]))
+                prob = torch.sigmoid(sharp * (x @ directions[node] + self.route_b[node]))
                 s = torch.sigmoid(self.branch_logit[node])
                 left = values[2 * node + 1]
                 right = values[2 * node + 2]
@@ -147,12 +157,11 @@ class UniversalSoftTree(nn.Module):
         affine = (r * self.affine.square().sum(1, keepdim=True).add(1e-12).sqrt()).sum()
         interaction = (r * self.igain.square().sum(1, keepdim=True).add(1e-12).sqrt()).sum()
 
-        # Normalize routing directions before charging for obliqueness.  This
-        # removes the old scale degeneracy: sharpness controls how hard a split
-        # is, while ||u||_1-1 measures only departure from an axis direction.
-        direction = self.route_w / self.route_w.norm(dim=1, keepdim=True).clamp_min(1e-6)
+        # Route entropy is the deformation coordinate: a signed axis is a
+        # one-hot simplex corner; oblique directions pay only for mixing axes.
+        direction, route_entropy = self.route_state()
         route_reach = reach[:self.n_internal]
-        oblique = (route_reach * (direction.abs().sum(1) - 1.0).clamp_min(0.)).sum()
+        oblique = (route_reach * route_entropy).sum()
 
         value = (reach * self.value_bias.square()).sum()
 
@@ -161,7 +170,7 @@ class UniversalSoftTree(nn.Module):
         ramp = min(1.0, max(0.0, (progress - .10) / .45))
         terms = {
             "branch": BRANCH_COST * branch * ramp,
-            "oblique": OBLIQUE_COST * oblique * ramp,
+            "route_entropy": ROUTE_ENTROPY_COST * oblique * ramp,
             "affine": AFFINE_COST * affine * ramp,
             "interaction": INTERACTION_COST * interaction * ramp,
             "value_l2": VALUE_L2 * value,
@@ -184,8 +193,8 @@ class UniversalSoftTree(nn.Module):
                 "mean_reach": float(rr.mean()),
             })
 
-        unit_route = self.route_w.detach() / self.route_w.detach().norm(dim=1, keepdim=True).clamp_min(1e-12)
-        route_abs = unit_route.abs()
+        unit_route, route_entropy = self.route_state()
+        route_abs = unit_route.detach().abs()
         denom = route_abs.sum(1).clamp_min(1e-12)
         concentration = route_abs.max(1).values / denom
         q = route_abs / denom[:, None]
@@ -203,6 +212,7 @@ class UniversalSoftTree(nn.Module):
             "depths": depth_rows,
             "route_axis_concentration_mean": float(concentration.mean()),
             "route_effective_features_mean": float(effective_features.mean()),
+            "route_entropy_mean": float(route_entropy.detach().mean()),
             "route_sharpness_mean": float((.5 + torch.nn.functional.softplus(self.route_log_sharp.detach())).mean()),
             "reach_weighted_affine_l1": weighted_affine,
             "reach_weighted_interaction_gain_l1": weighted_interaction,
@@ -302,7 +312,7 @@ def run(regime, seed, out):
     gap = cm["nll"] - bayes["nll"]
 
     result = {
-        "study": "universal_soft_tree_deformation_v2",
+        "study": "universal_soft_tree_deformation_v3",
         "regime": regime,
         "seed": seed,
         "model_policy_identical_across_regimes": True,
@@ -316,7 +326,7 @@ def run(regime, seed, out):
         "parameters": int(sum(p.numel() for p in model.parameters())),
         "regularization": {
             "branch_cost": BRANCH_COST,
-            "oblique_cost": OBLIQUE_COST,
+            "route_entropy_cost": ROUTE_ENTROPY_COST,
             "affine_cost": AFFINE_COST,
             "interaction_cost": INTERACTION_COST,
             "value_l2": VALUE_L2,
