@@ -30,7 +30,7 @@ import numpy as np
 import torch
 from torch import nn
 from catboost import CatBoostClassifier
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split\nfrom sklearn.tree import DecisionTreeClassifier
 from sklearn.preprocessing import StandardScaler
 
 import experiments.fast_semantic_mechanism_screen as base
@@ -223,6 +223,63 @@ class UniversalSoftTree(nn.Module):
         }
 
 
+@torch.no_grad()
+def cart_warm_start(model: UniversalSoftTree, x: np.ndarray, y: np.ndarray, seed: int):
+    """Initialize the SAME differentiable tree from a generic CART proposal.
+
+    CART supplies only a statistically sensible tree corner.  After this point
+    it is discarded: every route, branch gate, local affine packet, interaction
+    gain and sharpness coordinate belongs to the universal torch model and is
+    updated by the ordinary optimizer.
+    """
+    cart = DecisionTreeClassifier(
+        max_depth=model.max_depth,
+        min_samples_leaf=20,
+        random_state=seed,
+    ).fit(x, y)
+    t = cart.tree_
+
+    model.value_bias.zero_()
+    model.affine.zero_()
+    model.igain.zero_()
+    model.branch_logit.fill_(-4.0)
+    model.route_logits.zero_()
+    model.route_b.zero_()
+    model.route_log_sharp.fill_(2.5)
+
+    def node_logit(sk: int) -> float:
+        counts = t.value[sk].reshape(-1).astype(float)
+        if len(counts) < 2:
+            return 0.0
+        p = (counts[1] + .5) / (counts.sum() + 1.0)
+        return float(np.log(p) - np.log1p(-p))
+
+    def visit(sk: int, complete: int, parent_logit: float):
+        if complete >= model.n_nodes:
+            return
+        here = node_logit(sk)
+        model.value_bias[complete] = here - parent_logit
+        left, right = int(t.children_left[sk]), int(t.children_right[sk])
+        if left == right or complete >= model.n_internal:
+            return
+        feature = int(t.feature[sk])
+        threshold = float(t.threshold[sk])
+        # Signed-simplex +e_feature: probability routes right for x_j > threshold.
+        model.route_logits[complete].fill_(-2.0)
+        model.route_logits[complete, feature] = 4.0
+        model.route_b[complete] = -threshold
+        model.branch_logit[complete] = 2.5
+        visit(left, 2 * complete + 1, here)
+        visit(right, 2 * complete + 2, here)
+
+    visit(0, 0, 0.0)
+    return {
+        "cart_depth": int(t.max_depth),
+        "cart_nodes": int(t.node_count),
+        "cart_leaves": int(t.n_leaves),
+    }
+
+
 def train(model, fx, fy, sx, sy, seed):
     torch.manual_seed(seed)
     opt = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-6)
@@ -298,6 +355,7 @@ def run(regime, seed, out):
     # changes, so structural differences cannot be attributed to initialization.
     torch.manual_seed(seed + 2000)
     model = UniversalSoftTree(base.P)
+    warm_start = cart_warm_start(model, fx, fy, seed + 2000)
     model, best_sel, best_epoch, history = train(model, fx, fy, sx, sy, seed + 2000)
     pp = predict(model, qx)
     tm = base.metrics(qy, pp)
@@ -314,7 +372,7 @@ def run(regime, seed, out):
     gap = cm["nll"] - bayes["nll"]
 
     result = {
-        "study": "universal_soft_tree_deformation_v4",
+        "study": "universal_soft_tree_deformation_v5_cart_warm_start",
         "regime": regime,
         "seed": seed,
         "model_policy_identical_across_regimes": True,
@@ -326,6 +384,7 @@ def run(regime, seed, out):
         "interaction_rank": RANK,
         "passes": PASSES,
         "parameters": int(sum(p.numel() for p in model.parameters())),
+        "warm_start": warm_start,
         "regularization": {
             "branch_cost": BRANCH_COST,
             "route_entropy_cost": ROUTE_ENTROPY_COST,
