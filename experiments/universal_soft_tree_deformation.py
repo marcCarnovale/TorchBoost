@@ -68,6 +68,7 @@ class UniversalSoftTree(nn.Module):
         # hyperplane toward an axis split; nothing selects an "oblique expert".
         self.route_w = nn.Parameter(torch.empty(self.n_internal, p))
         self.route_b = nn.Parameter(torch.zeros(self.n_internal))
+        self.route_log_sharp = nn.Parameter(torch.zeros(self.n_internal))
         nn.init.normal_(self.route_w, std=.04)
 
         # A potential branch begins partially open so descendants receive a
@@ -105,7 +106,9 @@ class UniversalSoftTree(nn.Module):
         for node in range(self.n_nodes - 1, -1, -1):
             here = local[:, node]
             if node < self.n_internal:
-                prob = torch.sigmoid(x @ self.route_w[node] + self.route_b[node])
+                direction = self.route_w[node] / self.route_w[node].norm().clamp_min(1e-6)
+                sharp = .5 + torch.nn.functional.softplus(self.route_log_sharp[node])
+                prob = torch.sigmoid(sharp * (x @ direction + self.route_b[node]))
                 s = torch.sigmoid(self.branch_logit[node])
                 left = values[2 * node + 1]
                 right = values[2 * node + 2]
@@ -144,10 +147,12 @@ class UniversalSoftTree(nn.Module):
         affine = (r * self.affine.square().sum(1, keepdim=True).add(1e-12).sqrt()).sum()
         interaction = (r * self.igain.square().sum(1, keepdim=True).add(1e-12).sqrt()).sum()
 
-        # L1 on routing directions makes axis-aligned solutions cheap while
-        # permitting genuine oblique gates when several coordinates earn rent.
-        route_reach = reach[:self.n_internal, None]
-        route = (route_reach * self.route_w.abs()).sum()
+        # Normalize routing directions before charging for obliqueness.  This
+        # removes the old scale degeneracy: sharpness controls how hard a split
+        # is, while ||u||_1-1 measures only departure from an axis direction.
+        direction = self.route_w / self.route_w.norm(dim=1, keepdim=True).clamp_min(1e-6)
+        route_reach = reach[:self.n_internal]
+        oblique = (route_reach * (direction.abs().sum(1) - 1.0).clamp_min(0.)).sum()
 
         value = (reach * self.value_bias.square()).sum()
 
@@ -156,7 +161,7 @@ class UniversalSoftTree(nn.Module):
         ramp = min(1.0, max(0.0, (progress - .10) / .45))
         terms = {
             "branch": BRANCH_COST * branch * ramp,
-            "route": ROUTE_L1 * route * ramp,
+            "oblique": OBLIQUE_COST * oblique * ramp,
             "affine": AFFINE_COST * affine * ramp,
             "interaction": INTERACTION_COST * interaction * ramp,
             "value_l2": VALUE_L2 * value,
@@ -179,7 +184,8 @@ class UniversalSoftTree(nn.Module):
                 "mean_reach": float(rr.mean()),
             })
 
-        route_abs = self.route_w.detach().abs()
+        unit_route = self.route_w.detach() / self.route_w.detach().norm(dim=1, keepdim=True).clamp_min(1e-12)
+        route_abs = unit_route.abs()
         denom = route_abs.sum(1).clamp_min(1e-12)
         concentration = route_abs.max(1).values / denom
         q = route_abs / denom[:, None]
@@ -197,6 +203,7 @@ class UniversalSoftTree(nn.Module):
             "depths": depth_rows,
             "route_axis_concentration_mean": float(concentration.mean()),
             "route_effective_features_mean": float(effective_features.mean()),
+            "route_sharpness_mean": float((.5 + torch.nn.functional.softplus(self.route_log_sharp.detach())).mean()),
             "reach_weighted_affine_l1": weighted_affine,
             "reach_weighted_interaction_gain_l1": weighted_interaction,
             "root_affine_l2": float(self.affine[0].detach().norm()),
@@ -275,6 +282,9 @@ def run(regime, seed, out):
     fx, fy = x[fit_idx], y[fit_idx]
     sx, sy = x[sel_idx], y[sel_idx]
 
+    # Exact same initial random state in every regime.  Only the data geometry
+    # changes, so structural differences cannot be attributed to initialization.
+    torch.manual_seed(seed + 2000)
     model = UniversalSoftTree(base.P)
     model, best_sel, best_epoch, history = train(model, fx, fy, sx, sy, seed + 2000)
     pp = predict(model, qx)
@@ -292,7 +302,7 @@ def run(regime, seed, out):
     gap = cm["nll"] - bayes["nll"]
 
     result = {
-        "study": "universal_soft_tree_deformation_v1",
+        "study": "universal_soft_tree_deformation_v2",
         "regime": regime,
         "seed": seed,
         "model_policy_identical_across_regimes": True,
@@ -306,7 +316,7 @@ def run(regime, seed, out):
         "parameters": int(sum(p.numel() for p in model.parameters())),
         "regularization": {
             "branch_cost": BRANCH_COST,
-            "route_l1": ROUTE_L1,
+            "oblique_cost": OBLIQUE_COST,
             "affine_cost": AFFINE_COST,
             "interaction_cost": INTERACTION_COST,
             "value_l2": VALUE_L2,
