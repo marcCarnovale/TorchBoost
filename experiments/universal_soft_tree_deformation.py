@@ -95,9 +95,8 @@ class UniversalSoftTree(nn.Module):
     def route_state(self) -> tuple[torch.Tensor, torch.Tensor]:
         weights = torch.softmax(self.route_logits / .5, dim=1)
         signed = weights[:, :self.p] - weights[:, self.p:]
-        direction = signed / signed.norm(dim=1, keepdim=True).clamp_min(1e-6)
         entropy = -(weights * weights.clamp_min(1e-12).log()).sum(1)
-        return direction, entropy
+        return signed, entropy
 
     def local_value(self, x: torch.Tensor) -> torch.Tensor:
         # [batch, nodes]
@@ -117,7 +116,9 @@ class UniversalSoftTree(nn.Module):
         for node in range(self.n_nodes - 1, -1, -1):
             here = local[:, node]
             if node < self.n_internal:
-                sharp = .5 + torch.nn.functional.softplus(self.route_log_sharp[node])
+                # Bounded sharpness prevents an infinitesimal simplex imbalance
+                # from being amplified into a free oblique direction.
+                sharp = .5 + 4.5 * torch.sigmoid(self.route_log_sharp[node])
                 prob = torch.sigmoid(sharp * (x @ directions[node] + self.route_b[node]))
                 s = torch.sigmoid(self.branch_logit[node])
                 left = values[2 * node + 1]
@@ -160,8 +161,8 @@ class UniversalSoftTree(nn.Module):
         # Route entropy is the deformation coordinate: a signed axis is a
         # one-hot simplex corner; oblique directions pay only for mixing axes.
         direction, route_entropy = self.route_state()
-        route_reach = reach[:self.n_internal]
-        oblique = (route_reach * route_entropy).sum()
+        route_use = reach[:self.n_internal] * torch.sigmoid(self.branch_logit)
+        oblique = (route_use * route_entropy).sum()
 
         value = (reach * self.value_bias.square()).sum()
 
@@ -193,8 +194,8 @@ class UniversalSoftTree(nn.Module):
                 "mean_reach": float(rr.mean()),
             })
 
-        unit_route, route_entropy = self.route_state()
-        route_abs = unit_route.detach().abs()
+        raw_route, route_entropy = self.route_state()
+        route_abs = raw_route.detach().abs()
         denom = route_abs.sum(1).clamp_min(1e-12)
         concentration = route_abs.max(1).values / denom
         q = route_abs / denom[:, None]
@@ -213,7 +214,8 @@ class UniversalSoftTree(nn.Module):
             "route_axis_concentration_mean": float(concentration.mean()),
             "route_effective_features_mean": float(effective_features.mean()),
             "route_entropy_mean": float(route_entropy.detach().mean()),
-            "route_sharpness_mean": float((.5 + torch.nn.functional.softplus(self.route_log_sharp.detach())).mean()),
+            "route_strength_mean": float(raw_route.detach().norm(dim=1).mean()),
+            "route_sharpness_mean": float((.5 + 4.5 * torch.sigmoid(self.route_log_sharp.detach())).mean()),
             "reach_weighted_affine_l1": weighted_affine,
             "reach_weighted_interaction_gain_l1": weighted_interaction,
             "root_affine_l2": float(self.affine[0].detach().norm()),
@@ -312,7 +314,7 @@ def run(regime, seed, out):
     gap = cm["nll"] - bayes["nll"]
 
     result = {
-        "study": "universal_soft_tree_deformation_v3",
+        "study": "universal_soft_tree_deformation_v4",
         "regime": regime,
         "seed": seed,
         "model_policy_identical_across_regimes": True,
