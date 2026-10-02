@@ -108,8 +108,6 @@ def load_dataset(name):
     if len(np.unique(y)) != 2:
         raise ValueError(f"{name} is not binary after loading")
     missing_before = int(x.isna().sum().sum())
-    imp = SimpleImputer(strategy="median")
-    x = imp.fit_transform(x).astype("float32")
     metadata = {
         "openml_id": did,
         "openml_name": getattr(bunch, "details", {}).get("name", name),
@@ -376,6 +374,10 @@ def run(name, seed, out):
 
     x, y, metadata = load_dataset(name)
     (tx, ty), (sx, sy), (qx, qy) = splits(x, y, seed)
+    imputer = SimpleImputer(strategy="median").fit(tx)
+    tx = imputer.transform(tx).astype("float32")
+    sx = imputer.transform(sx).astype("float32")
+    qx = imputer.transform(qx).astype("float32")
     scaler = StandardScaler().fit(tx)
     tx = scaler.transform(tx).astype("float32")
     sx = scaler.transform(sx).astype("float32")
@@ -456,7 +458,7 @@ def run(name, seed, out):
         },
         "preprocessing": {
             "numeric_coercion": True,
-            "median_imputation_fit_on_full_loaded_dataset": True,
+            "median_imputation_fit_on_train_only": True,
             "standard_scaler_fit_on_train_only": True,
         },
         "environment": {
