@@ -1,114 +1,244 @@
 # TorchBoost
 
-**Differentiable Newton boosting, with a research program in adaptive structure and plasticity.**
+**Function-preserving neural–tree architecture expansion for tabular learning.**
 
-TorchBoost is being rebuilt from an AI-assisted 2024 overnight prototype into a reproducible
-research project. The aim is an ensemble that learns where to specialize, grow, preserve,
-reconsider and remove structure. The aim is ambitious; the claims below are limited to what
-is implemented and tested.
+TorchBoost is an experimental PyTorch research system for studying whether strong
+tabular neural and tree predictors can be embedded inside a shared trainable
+architecture and then expanded without destroying the inherited function.
 
-## Two deliberately separate APIs
+## Main research result
 
-| API | What it does today |
-|---|---|
-| `StagewiseBinaryClassifier` | Adds differentiable binary soft trees sequentially using real logistic gradients/Hessians, coupled soft-leaf Newton solves, shrinkage and exact-loss backtracking. |
-| `TorchBoostModel` | Preserved legacy jointly optimized soft-tree/attention ensemble. It is not classical stagewise gradient boosting. |
+The strongest current evidence is a HIGGS neural→tree hybrid result, not the
+historical progressive-forest machinery.
 
-The new binary baseline includes weighted samples, training-only missing-value preprocessing,
-minibatching, deterministic seeds, sklearn-style inference, checkpoint round-trips, hard-tree
-JSON export, and independent split metrics. An optional capacitor controller injects charge
-on controller-validation regression, discharges electrical energy into corrective heat, and
-cools independently. Its temperatures affect routing softness, not the optimizer learning rate.
+A canonical five-layer ReLU MLP is represented exactly as depth-zero affine
+tree layers. Each hidden layer can then grow a zero-at-birth residual-tree
+refinement, so structural capacity is introduced **function-preservingly**.
+The inherited MLP backbone and head stay frozen while only the newborn routing
+and residual packets are trained.
 
-**Not implemented yet:** dynamic sparse growth/deletion, specialized multiclass attention heads,
-plastic anchor yielding/breakage, local inductive momentum and learned online policies. They are
-first-class requirements in the [research RFC](docs/research-program.md) and
-[machine-readable feature ledger](docs/feature-ledger.json), not advertised features.
+On the 500k-row HIGGS development protocol, held-out learning of five positive
+layerwise residual scales beat an otherwise identical fixed-scale adapter:
 
-## Install and run
+- fixed-scale ranking NLL/AUC: `0.57106812 / 0.76946808`
+- held-out-scale ranking NLL/AUC: `0.57049915 / 0.76991939`
+- delta: **−0.00056897 NLL / +0.00045131 AUC**
 
-Python 3.10+; a supported PyTorch installation is required.
+The result then reproduced directionally in all three predeclared independent
+seeds. The mean replicated held-out-minus-fixed effect was approximately
+**−0.000230371 NLL / +0.000293058 AUC**. Exact SHAs, run IDs, jobs, artifacts,
+and per-seed values are recorded in `research/RESULTS.md`.
+
+A new matched causal control is predeclared in
+`research/higgs_scale_source_control_protocol.md`: the same five scales are
+trained either from TRAIN or from SELECTION with matched update cadence. This
+tests whether the gain is specifically associated with held-out architecture
+allocation rather than merely adding five trainable supervised parameters.
+
+The fresh HIGGS shadow audit at rows `[9,600,000, 10,100,000)` remains
+**unopened**. External transfer is evaluated separately on seven public OpenML
+datasets with five seeds and dataset-clustered inference.
+
+### What is and is not claimed
+
+Current evidence supports a narrow statement: a pretrained tabular MLP can be
+expanded with zero-at-birth residual-tree structure, and held-out optimization
+of the residual architecture weights reproducibly improves the hybrid on the
+HIGGS development protocol.
+
+It does **not** yet establish broad tabular state of the art, superiority over
+properly tuned CatBoost/XGBoost/LightGBM, or successful optimization across the
+entire architecture space described elsewhere in this repository.
+
+## Broader experimental system
+
+### Single power tree — current default research path
+
+A node can contribute an affine residual
+
+\[
+r_v(x)=b_v+x^\top\beta_v,
+\]
+
+so a path accumulates coarse-to-fine predictive corrections rather than only constant leaf values.
+Hard Newton/model-tree proposals can be released into differentiable routing and trained with
+hierarchical regularization. This substantially increases the capacity of one tree before ensembling.
+
+### OOF-selected forest
+
+`OOFForest` trains candidate members on inner bags, scores them using out-of-fold predictions,
+retains only the strongest members, refits survivors on independent outer bags, and supports
+uniform, inverse-loss, or softmax OOF-performance weighting. Member selection is therefore based on
+held-out behavior rather than unconditional averaging.
+
+### Progressive / boosted power trees
+
+`UnifiedProgressiveClassifier` and `UnifiedProgressiveRegressor` add corrective trees sequentially.
+Older trees can slow with age instead of being permanently frozen. The native trainer can combine
+this with plastic anchors, dynamic structure, online local control, and capacitor/RLC thermal control.
+
+## Axis-aligned by default; oblique routing is explicit
+
+For ordinary tabular data, arbitrary rotations across unrelated columns are usually a poor prior.
+The default proposal is axis-aligned. Experimental `proposal_mode="grouped_oblique"` restricts an
+oblique gate to one declared semantic feature group; singleton groups recover ordinary axis splits,
+and groups may overlap. This is intended for domain-informed or strongly evidenced feature groups,
+not indiscriminate rotation of all columns.
+
+
+## Data-adaptive experimental design
+
+Power-tree structural learning defaults to data-adaptive complexity control. On larger fitting sets,
+candidate splits can be screened cheaply, ranked by K-fold out-of-fold improvement, and then refit on
+all data. Final affine packets can be averaged across large parameter-estimation bags. Cross-fitting
+uses a capped design sample on very large nodes so structural validation does not make tree
+construction quadratic in data size.
+
+On smaller data, the same policy increases required rows per affine parameter, strengthens local
+ridge pressure, and reduces feasible depth. A single permanent holdout is not the default: it wastes
+scarce data and was empirically too conservative in development tests.
+
+This is separate from final model selection: controller, selection, ranking, and audit data remain
+distinct where the experiment protocol provides them.
+
+## Adaptive mechanisms
+
+The native engine implements:
+
+- evidence-earned anchors and elastic pullback;
+- yielding, permanent reference motion, work hardening, damage/breakage, recovery, and optional locks;
+- capacitor and RLC corrective-energy controllers with independent cooling;
+- thermal softening and thaw/reopening;
+- local momentum variants, including circuit-state coupling;
+- real growth/pruning with optimizer/controller/plastic-state migration;
+- split-specific observations and an online local policy with delayed outcomes;
+- hierarchical, feature, structural, routing, and output regularization.
+
+Physics is **not** assumed to improve an underpowered predictor. Current development first makes the
+base tree/forest statistically strong, then evaluates control mechanisms on long nonstationary
+curricula where retention, selective reopening, and recovery can actually matter.
+
+## Physics defaults and topology scaling
+
+The ordinary routing temperature is 1.0. Physics-enabled experiments now use a neutral resting
+temperature of 1.0 so enabling the controller does not silently sharpen every gate.
+
+`PhysicsConfig(topology_normalization=True)` derives per-node resistance, inductance, heat capacity,
+and cooling from whole-controller time constants. When topology changes, stored thermal and
+inductive energy are preserved while component values are recalibrated. This prevents the same
+controller configuration from changing meaning merely because a tree grows.
+
+## Current evidence
+
+### HIGGS architecture-space result
+
+The current research branch treats CatBoost and a five-layer ReLU MLP as
+calibrated corners inside a larger TorchBoost architecture space rather than
+defining TorchBoost as one historical progressive-forest configuration.
+
+On the canonical 500k-row, 21-feature HIGGS protocol:
+
+- the depth-zero compositional TorchBoost endpoint reproduces the canonical MLP
+  training path exactly;
+- imported numerical CatBoost symmetric trees reproduce the fitted CatBoost
+  predictor to numerical precision;
+- growing zero-at-birth affine tree residual adapters in all five hidden layers,
+  freezing the inherited MLP backbone/head, and training only the residual
+  packets/routing improves materially over the MLP anchor;
+- most importantly, held-out differentiable learning of the five residual
+  scales improves over an otherwise identical fixed-scale adapter.
+
+The decisive differentiable-adapter study is GitHub Actions run
+`36525742176`, source SHA
+`265a8e040a060080d198bb5fce5578a1ccc1825f`.  Both arms begin at residual
+scale `sigmoid(-2) = 0.1192029` and receive the same residual/routing training
+budget.  The fixed-scale adapter reached ranking NLL/AUC
+`0.57106812 / 0.76946808`; the held-out learned-scale adapter reached
+`0.57049915 / 0.76991939`, an improvement of `-0.00056897` NLL and
+`+0.00045131` AUC from architecture-scale learning itself.  Relative to the
+canonical MLP anchor in the same study, the learned adapter improved ranking by
+about `-0.00304` NLL and `+0.00445` AUC.
+
+The learned residual scales were approximately
+`[0.1329, 0.0923, 0.0644, 0.0423, 0.0385]`: a data-selected taper from a
+slightly strengthened first-layer correction to progressively smaller deeper
+corrections.  This is evidence that differentiable held-out architecture
+learning can discover a better hybrid point inside this restricted adapter
+family, not merely that TorchBoost can represent one.
+
+The replicated adapter mechanism is now centralized in
+`torchboost/adaptive/residual_adapter.py`; HIGGS and external-transfer studies
+use the same function-preserving model surgery rather than maintaining separate
+copies.
+
+A frozen external-transfer benchmark is also running across seven public
+OpenML binary datasets and five predeclared seeds. It compares the learned
+adapter against its MLP anchor, the identical fixed-scale adapter, CatBoost,
+XGBoost, and LightGBM under train-only preprocessing and paired
+train/selection/ranking splits. The workflow emits machine-readable per-cell
+records plus an aggregate report with paired deltas, win/tie/loss counts,
+standard errors, and deterministic bootstrap intervals. See
+`research/external_adapter_benchmark_protocol.md`. No external benchmark
+result is claimed here until that frozen matrix completes.
+
+These are **selection/ranking development results**.  The fresh shadow audit
+defined in `experiments/higgs_shadow_protocol.json` remains unopened.  No
+claim of final unseen-test or broad benchmark superiority is made from these
+numbers.
+
+Recorded development results also include:
+
+- one affine-residual power-tree configuration beating a much larger CatBoost ensemble on a controlled
+  context-dependent affine problem; this is a development result, not a broad leaderboard claim;
+- grouped-oblique routing helping when a related feature block is deliberately rotated, while hurting
+  when the natural axis-aligned representation is already correct;
+- recurring-domain A→B→A experiments where adaptive memory/control can improve return performance,
+  while A→B→C can punish excessive retention;
+- current topology-normalized recurring A→B→A→B→A screens where capacitor control improves over the
+  matched no-control model on two development seeds. These are mechanism-development results, not
+  evidence of general superiority.
+
+The project target is stronger than XGBoost: comparisons should include CatBoost and other strong
+tabular references. Physics/control improvements are expected to be incremental; the statistical
+backbone must earn competitiveness on its own.
+
+## Install
 
 ```bash
 git clone https://github.com/marcCarnovale/TorchBoost.git
 cd TorchBoost
 python -m pip install -e '.[dev,benchmark]'
-python examples/stagewise_binary.py
 pytest -q
-python -m benchmarks.run_binary --seeds 0 1 2
 ```
 
-```python
-from torchboost import StagewiseBinaryClassifier
+## Minimal unified example
 
-model = StagewiseBinaryClassifier(
-    n_estimators=40,
-    max_depth=3,
-    epochs_per_stage=20,
-    init="random",        # "cart" is an explicitly disclosed hybrid warm start
-    random_state=42,
+```python
+from torchboost.adaptive import UnifiedConfig, UnifiedProgressiveClassifier
+
+cfg = UnifiedConfig(
+    n_trees=1,                 # single power tree
+    linear_values=True,
+    proposal_mode="hist_newton",
 )
-model.fit(X_train, y_train, eval_set=(X_selection, y_selection))
-probabilities = model.predict_proba(X_test)  # two columns in model.classes_ order
-model.save("model.pt")
-model.export_json("hard_model.json")
+
+model = UnifiedProgressiveClassifier(cfg)
+model.fit(
+    X_train, y_train,
+    control_set=(X_control, y_control),
+    eval_set=(X_selection, y_selection),
+)
+p = model.predict_proba(X_test)
 ```
 
-Accepted trees are immutable during later stages. The final model is the best evaluated prefix,
-including the intercept-only candidate. A hard export matches explicit hard inference; it is
-not promised to match soft predictions. The benchmark reports that discrepancy.
+Final test data must never be supplied as controller or selection data.
 
-Enable the experimental controller only with a separate control split:
+## Research discipline
 
-```python
-model = StagewiseBinaryClassifier(controller={"cooling_law": "linear"})
-model.fit(X_train, y_train,
-          control_set=(X_controller, y_controller),
-          eval_set=(X_selection, y_selection))
-```
+A configured mechanism, an activated mechanism, and a beneficial mechanism are three different
+claims. Experiments record intervention timing, charge/temperature, anchor admission, structural
+events, and selected checkpoints so late or inactive mechanisms are not credited for earlier model
+quality. Negative controls are retained.
 
-Do not feed the final test set to either adaptation or selection. The minimal controller affects
-only the candidate tree and uses uniform node resistances. It is not the complete proposed
-forest-wide electrical network.
-
-## Evidence, not a leaderboard claim
-
-The [recorded smoke benchmark](docs/benchmark-smoke.md) contains all 30 runs: two small binary
-datasets, three fixed split seeds, four TorchBoost variants and XGBoost. It records AUC, NLL,
-accuracy, balanced accuracy, calibration, runtime, selected stages and soft/hard discrepancy.
-The results are encouraging on these splits, but XGBoost is substantially faster. There is no
-matched tuning budget, broad dataset coverage, or established state-of-the-art claim. Peak
-training memory has not been measured; serialized tensor bytes are not a substitute.
-
-The new solver allocates a complete binary tree and a dense leaf covariance matrix. It is a
-small-data reference, not the promised deep sparse engine. CPU tests and comparisons are
-recorded; GPU throughput and distributed operation remain unvalidated.
-
-## Research direction
-
-The distinctive hypotheses are **corrective heat allocation**, **evidence-earned plastic
-anchors whose pullback can yield or break**, and **real dynamic growth/pruning**, combined with
-learned output specialization. These mechanisms must remain independently switchable and
-falsifiable. The [RFC](docs/research-program.md) states equations, owners, prior art and acceptance
-gates; the [migration guide](docs/migration.md) explains compatibility and known legacy defects.
-
-Metric collection is independent of plasticity:
-
-    training -> SplitMetricsCollector -> PerformanceTracker
-                                         -> OnlineScheduler [planned]
-                                              -> PlasticityModule [planned]
-
-A shared learner must preserve node-specific histories and outcomes. Frozen means preserved,
-not removed. Thawing means reconsidering, not resetting. Temperature, learning rate, momentum,
-plastic consolidation and structural existence are different controls.
-
-## Legacy compatibility and provenance
-
-`from torchboost import SoftTree, TorchBoostModel, train_torchboost` still resolves to the
-characterized cleanup implementation, preserved byte-for-byte in `torchboost/legacy.py`.
-Known issues remain there deliberately as a reference, including disconnected pruning and
-snapshot timing. New code does not silently reuse those semantics. Research ideas originated
-in the maintainer's design conversations; generated code is subject to the same tests and
-review standards as any other implementation. See [AGENTS.md](AGENTS.md).
-
-MIT license; see [LICENSE](LICENSE).
+The draft research branch remains under active development. See `docs/research-program.md` and the
+current experiment scripts for protocols and known limitations.

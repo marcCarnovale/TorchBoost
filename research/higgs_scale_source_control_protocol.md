@@ -1,0 +1,56 @@
+# HIGGS scale-source causal control protocol
+
+Status: predeclared before interpreting this control study.
+
+## Question
+
+The replicated HIGGS study established that held-out learning of five positive
+layerwise residual scales improves over an otherwise matched fixed-scale
+adapter. This control asks whether that benefit is specifically associated with
+held-out architecture allocation, rather than merely granting the adapter five
+additional trainable supervised parameters.
+
+## Frozen arms
+
+All arms share the same canonical MLP anchor, one zero-at-birth residual-tree
+refinement in each hidden layer, frozen inherited backbone/head, residual
+optimizer, initialization, minibatch order, adapter epochs, and ranking set.
+
+1. **fixed**: residual scales remain fixed at `sigmoid(-2)`.
+2. **train-scale**: the same five scale parameters are trainable and updated
+   from TRAIN on the same post-warmup cadence as the held-out arm.
+3. **heldout-scale**: the same five scale parameters are updated from SELECTION
+   on that matched cadence.
+
+Residual routing/packet parameters are trained from TRAIN in all three arms.
+The scale optimizer, learning rate, clipping rule, warmup, and update count are
+matched between train-scale and heldout-scale.
+
+## Primary comparison
+
+Primary quantity:
+
+`heldout-scale ranking NLL - train-scale ranking NLL`.
+
+Negative is favorable to held-out architecture allocation. Ranking AUC is a
+secondary directional measure.
+
+The fixed-scale and MLP-anchor comparisons remain useful context but do not
+answer this causal question by themselves.
+
+## Data discipline
+
+TRAIN and SELECTION may be used exactly as described above. RANKING is
+evaluation only. The fresh HIGGS shadow audit at rows
+`[9,600,000, 10,100,000)` remains unopened and must not be accessed by this
+study.
+
+## Interpretation
+
+A heldout-scale win over train-scale supports the narrower claim that allocating
+residual capacity using held-out predictive evidence adds value beyond simply
+making the five scale coefficients trainable.
+
+A loss or tie does not invalidate the replicated learned-vs-fixed result; it
+would instead weaken the stronger causal interpretation of why that result
+occurs.
