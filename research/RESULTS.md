@@ -33,14 +33,17 @@ development protocol. It is not by itself a final unseen-test claim.
 
 | Seed | Job | Artifact | learned − fixed ranking ΔNLL | learned − fixed ranking ΔAUC |
 |---:|---:|---:|---:|---:|
-| 733 | `109433405368` | `11039690046` | `-0.002424768` | `+0.002814055` |
-| 2027 | `109433405526` | `11038735390` | `-0.002869581` | `+0.003383717` |
-| 4099 | `109433405076` | `11038164840` | `-0.002518489` | `+0.002833892` |
+| 733 | `109433405368` | `11039690046` | `-0.0001071258` | `+0.0001569420` |
+| 2027 | `109433405526` | `11038735390` | `-0.0002529960` | `+0.0003390280` |
+| 4099 | `109433405076` | `11038164840` | `-0.0003309902` | `+0.0003832027` |
 
 The predeclared replication criterion in
 `research/higgs_adapter_replication_protocol.md` was satisfied: all three
 independent seeds improved ranking NLL, so the mean direction is favorable and
-the 2-of-3 requirement is exceeded.
+the 2-of-3 requirement is exceeded. Across the three replications, mean learned
+minus fixed ranking delta is approximately ΔNLL `-0.000230371` and ΔAUC
+`+0.000293058`. The larger per-seed improvements versus the MLP anchor are a
+different comparison and are not reported in this table.
 
 ## Frozen mechanism
 
