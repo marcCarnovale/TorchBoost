@@ -7,9 +7,13 @@ TRAIN updates only residual packets and routing.
 SELECTION updates only the five positive residual scales.
 RANKING is evaluation only. The shadow audit is never opened.
 
-A fixed-scale adapter at sigmoid(-2) receives identical residual-training
-compute, so any gain from the learned-scale arm is attributable to held-out
-differentiable architecture learning rather than extra optimization.
+Three matched arms isolate the source of improvement:
+- fixed scales at sigmoid(-2);
+- train-updated scales with the same trainable parameters and update cadence;
+- held-out scales updated only from SELECTION.
+
+This separates the value of held-out architecture allocation from merely
+granting the adapter five additional trainable supervised parameters.
 """
 from __future__ import annotations
 
@@ -56,8 +60,11 @@ def partition(model):
 
 def train_adapter(
     model,train_x,train_y,selection_x,selection_y,*,
-    epochs,seed,learn_scales,warmup_epochs,
+    epochs,seed,scale_source,warmup_epochs,
 ):
+    if scale_source not in {"none", "train", "selection"}:
+        raise ValueError("scale_source must be none, train, or selection")
+    learn_scales = scale_source != "none"
     residual_params,scale_params=partition(model)
     residual_opt=torch.optim.AdamW(residual_params,lr=1e-3,weight_decay=1e-5)
     scale_opt=(
@@ -88,10 +95,14 @@ def train_adapter(
             residual_opt.step()
             train_examples+=len(idx)
 
-            if (
-                learn_scales and epoch>=warmup_epochs
-                and (bi+1)%ARCH_EVERY==0
-            ):
+            scheduled_scale_update = (
+                learn_scales and epoch>=warmup_epochs and (bi+1)%ARCH_EVERY==0
+            )
+            if scheduled_scale_update and scale_source == "train":
+                torch.nn.utils.clip_grad_norm_(scale_params,2.)
+                scale_opt.step()
+                scale_updates+=1
+            elif scheduled_scale_update and scale_source == "selection":
                 if scursor+BATCH>len(sorder):
                     sorder=torch.randperm(len(selection_x),generator=selection_rng)
                     scursor=0
@@ -99,8 +110,8 @@ def train_adapter(
                 sx=torch.from_numpy(selection_x[sidx])
                 sy=torch.from_numpy(np.asarray(selection_y[sidx],dtype="float32"))
                 residual_opt.zero_grad(set_to_none=True);scale_opt.zero_grad(set_to_none=True)
-                # No direct scale penalty: held-out predictive evidence decides
-                # whether each perturbative adapter should shrink or grow.
+                # Held-out architecture arm: only the scale parameters receive
+                # gradients from SELECTION. Residual packets remain TRAIN-only.
                 sloss=loss_fn(model(sx),sy)
                 sloss.backward()
                 torch.nn.utils.clip_grad_norm_(scale_params,2.)
@@ -111,7 +122,7 @@ def train_adapter(
         state=architecture_state(model)
         row={"epoch":epoch+1,"selection":sel,"architecture":state}
         history.append(row)
-        print(json.dumps({"learn_scales":learn_scales,**row}),flush=True)
+        print(json.dumps({"scale_source":scale_source,**row}),flush=True)
         if sel["nll"]<best[0]:
             best=(
                 sel["nll"],
@@ -154,33 +165,45 @@ def run(csv_gz,cache,out,checkpoint_dir,seed=SEED):
     anchor_rank=metrics(splits["ranking"][1],probability(anchor,ranking_x))
 
     fixed=build_adapter(anchor,learn_scales=False)
+    train_scale=build_adapter(anchor,learn_scales=True)
     learned=build_adapter(anchor,learn_scales=True)
     probe=selection_x[:8192]
-    for name,model in (("fixed",fixed),("learned",learned)):
+    for name,model in (("fixed",fixed),("train_scale",train_scale),("learned",learned)):
         diff=float(np.max(np.abs(probability(model,probe)-probability(anchor,probe))))
         if diff>3e-6: raise RuntimeError(f"{name} adapter changed birth function: {diff}")
 
     training_seed=family_seed+19001
     fixed_training=train_adapter(
         fixed,train_x,train_y,selection_x,splits["selection"][1],
-        epochs=ADAPTER_EPOCHS,seed=training_seed,learn_scales=False,warmup_epochs=0
+        epochs=ADAPTER_EPOCHS,seed=training_seed,scale_source="none",warmup_epochs=0
+    )
+    train_scale_training=train_adapter(
+        train_scale,train_x,train_y,selection_x,splits["selection"][1],
+        epochs=ADAPTER_EPOCHS,seed=training_seed,scale_source="train",
+        warmup_epochs=SCALE_WARMUP_EPOCHS
     )
     learned_training=train_adapter(
         learned,train_x,train_y,selection_x,splits["selection"][1],
-        epochs=ADAPTER_EPOCHS,seed=training_seed,learn_scales=True,
+        epochs=ADAPTER_EPOCHS,seed=training_seed,scale_source="selection",
         warmup_epochs=SCALE_WARMUP_EPOCHS
     )
 
     fixed_sel=metrics(splits["selection"][1],probability(fixed,selection_x))
     fixed_rank=metrics(splits["ranking"][1],probability(fixed,ranking_x))
+    train_scale_sel=metrics(splits["selection"][1],probability(train_scale,selection_x))
+    train_scale_rank=metrics(splits["ranking"][1],probability(train_scale,ranking_x))
     learned_sel=metrics(splits["selection"][1],probability(learned,selection_x))
     learned_rank=metrics(splits["ranking"][1],probability(learned,ranking_x))
 
     checkpoint_dir=Path(checkpoint_dir);checkpoint_dir.mkdir(parents=True,exist_ok=True)
     torch.save({"state":fixed.state_dict()},checkpoint_dir/"fixed-adapter.pt")
     torch.save(
+        {"state":train_scale.state_dict(),"architecture":architecture_state(train_scale)},
+        checkpoint_dir/"train-scale-adapter.pt"
+    )
+    torch.save(
         {"state":learned.state_dict(),"architecture":architecture_state(learned)},
-        checkpoint_dir/"learned-scale-adapter.pt"
+        checkpoint_dir/"heldout-scale-adapter.pt"
     )
     result={
         "status":"completed","source":source,"seed":seed,"family_seed":family_seed,
@@ -189,16 +212,22 @@ def run(csv_gz,cache,out,checkpoint_dir,seed=SEED):
         "initial_scale":INITIAL_SCALE,
         "anchor":{"selection":anchor_sel,"ranking":anchor_rank,**anchor_training},
         "fixed_adapter":{"selection":fixed_sel,"ranking":fixed_rank,**fixed_training},
+        "train_scale_adapter":{
+            "selection":train_scale_sel,"ranking":train_scale_rank,
+            "architecture":architecture_state(train_scale),**train_scale_training
+        },
         "learned_scale_adapter":{
             "selection":learned_sel,"ranking":learned_rank,
             "architecture":architecture_state(learned),**learned_training
         },
         "deltas":{
-            "learned_selection_nll_vs_fixed":learned_sel["nll"]-fixed_sel["nll"],
-            "learned_ranking_nll_vs_fixed":learned_rank["nll"]-fixed_rank["nll"],
-            "learned_ranking_auc_vs_fixed":learned_rank["auc"]-fixed_rank["auc"],
-            "learned_ranking_nll_vs_anchor":learned_rank["nll"]-anchor_rank["nll"],
-            "learned_ranking_auc_vs_anchor":learned_rank["auc"]-anchor_rank["auc"],
+            "heldout_selection_nll_vs_fixed":learned_sel["nll"]-fixed_sel["nll"],
+            "heldout_ranking_nll_vs_fixed":learned_rank["nll"]-fixed_rank["nll"],
+            "heldout_ranking_auc_vs_fixed":learned_rank["auc"]-fixed_rank["auc"],
+            "heldout_ranking_nll_vs_train_scale":learned_rank["nll"]-train_scale_rank["nll"],
+            "heldout_ranking_auc_vs_train_scale":learned_rank["auc"]-train_scale_rank["auc"],
+            "heldout_ranking_nll_vs_anchor":learned_rank["nll"]-anchor_rank["nll"],
+            "heldout_ranking_auc_vs_anchor":learned_rank["auc"]-anchor_rank["auc"],
         },
     }
     Path(out).write_text(json.dumps(result,indent=2,sort_keys=True,allow_nan=False))
