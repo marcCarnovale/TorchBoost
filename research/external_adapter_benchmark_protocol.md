@@ -65,7 +65,7 @@ Every cell records:
 - learned architecture state;
 - paired RANKING deltas versus MLP, fixed adapter, CatBoost, XGBoost, and LightGBM.
 
-The aggregate report uses paired dataset-seed differences, win/tie/loss counts, standard errors, and deterministic bootstrap 95% intervals. These intervals summarize variation across the benchmark cells; they are not a claim that the seven datasets are a random sample from a formal population.
+The dataset is the primary inferential unit. Seed replicates quantify within-dataset variation. The aggregate report first averages paired effects within each dataset, then reports cross-dataset mean/median effects, dataset-level win/tie/loss counts, standard errors, and deterministic bootstrap 95% intervals obtained by resampling datasets as clusters. Cell-level seed summaries are retained only as secondary diagnostics.
 
 ## Interpretation
 
