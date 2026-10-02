@@ -1,4 +1,4 @@
-name: HIGGS differentiable residual adapter
+name: HIGGS residual adapter scale-source control
 
 on:
   push:
@@ -7,6 +7,7 @@ on:
       - 'torchboost/adaptive/architecture_corners.py'
       - 'experiments/higgs_differentiable_adapter.py'
       - 'tests/test_higgs_differentiable_adapter.py'
+      - 'research/higgs_scale_source_control_protocol.md'
       - '.github/workflows/higgs-differentiable-adapter.yml'
   workflow_dispatch:
 
@@ -49,12 +50,13 @@ jobs:
             curl -fL --retry 3 --retry-delay 5 https://archive.ics.uci.edu/ml/machine-learning-databases/00280/HIGGS.csv.gz -o /tmp/HIGGS.csv.gz
           fi
           test -s /tmp/HIGGS.csv.gz
-      - name: Run differentiable residual adapter
+      - name: Run matched scale-source control
         run: |
           set -euo pipefail
           mkdir -p research-results /tmp/higgs-cache
           git rev-parse HEAD > research-results/SOURCE_COMMIT.txt
           cp experiments/higgs_shadow_protocol.json research-results/
+          cp research/higgs_scale_source_control_protocol.md research-results/
           python -m pip freeze > research-results/environment.txt
           python -u experiments/higgs_differentiable_adapter.py             --csv-gz /tmp/HIGGS.csv.gz             --cache /tmp/higgs-cache             --out research-results/higgs-differentiable-adapter.json             --checkpoint-dir research-results/checkpoints             | tee research-results/higgs-differentiable-adapter.log
       - uses: actions/upload-artifact@v4
