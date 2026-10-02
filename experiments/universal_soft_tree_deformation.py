@@ -30,7 +30,8 @@ import numpy as np
 import torch
 from torch import nn
 from catboost import CatBoostClassifier
-from sklearn.model_selection import train_test_split\nfrom sklearn.tree import DecisionTreeClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.tree import DecisionTreeClassifier
 from sklearn.preprocessing import StandardScaler
 
 import experiments.fast_semantic_mechanism_screen as base
