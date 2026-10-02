@@ -1,13 +1,56 @@
 # TorchBoost
 
-**Adaptive differentiable model trees, selected forests, and progressive ensembles.**
+**Function-preserving neural–tree architecture expansion for tabular learning.**
 
-TorchBoost is a research system for tabular learning that combines a strong statistical backbone
-with explicit mechanisms for memory, plasticity, structural change, and physically motivated
-control. The project is experimental: mechanisms are kept independently switchable and claims are
-limited to recorded tests and experiments.
+TorchBoost is an experimental PyTorch research system for studying whether strong
+tabular neural and tree predictors can be embedded inside a shared trainable
+architecture and then expanded without destroying the inherited function.
 
-## Current model families
+## Main research result
+
+The strongest current evidence is a HIGGS neural→tree hybrid result, not the
+historical progressive-forest machinery.
+
+A canonical five-layer ReLU MLP is represented exactly as depth-zero affine
+tree layers. Each hidden layer can then grow a zero-at-birth residual-tree
+refinement, so structural capacity is introduced **function-preservingly**.
+The inherited MLP backbone and head stay frozen while only the newborn routing
+and residual packets are trained.
+
+On the 500k-row HIGGS development protocol, held-out learning of five positive
+layerwise residual scales beat an otherwise identical fixed-scale adapter:
+
+- fixed-scale ranking NLL/AUC: `0.57106812 / 0.76946808`
+- held-out-scale ranking NLL/AUC: `0.57049915 / 0.76991939`
+- delta: **−0.00056897 NLL / +0.00045131 AUC**
+
+The result then reproduced directionally in all three predeclared independent
+seeds. The mean replicated held-out-minus-fixed effect was approximately
+**−0.000230371 NLL / +0.000293058 AUC**. Exact SHAs, run IDs, jobs, artifacts,
+and per-seed values are recorded in `research/RESULTS.md`.
+
+A new matched causal control is predeclared in
+`research/higgs_scale_source_control_protocol.md`: the same five scales are
+trained either from TRAIN or from SELECTION with matched update cadence. This
+tests whether the gain is specifically associated with held-out architecture
+allocation rather than merely adding five trainable supervised parameters.
+
+The fresh HIGGS shadow audit at rows `[9,600,000, 10,100,000)` remains
+**unopened**. External transfer is evaluated separately on seven public OpenML
+datasets with five seeds and dataset-clustered inference.
+
+### What is and is not claimed
+
+Current evidence supports a narrow statement: a pretrained tabular MLP can be
+expanded with zero-at-birth residual-tree structure, and held-out optimization
+of the residual architecture weights reproducibly improves the hybrid on the
+HIGGS development protocol.
+
+It does **not** yet establish broad tabular state of the art, superiority over
+properly tuned CatBoost/XGBoost/LightGBM, or successful optimization across the
+entire architecture space described elsewhere in this repository.
+
+## Broader experimental system
 
 ### Single power tree — current default research path
 
