@@ -33,7 +33,7 @@ from experiments.higgs_differentiable_architecture import (
 )
 from torchboost.adaptive.architecture_corners import CompositionalTreeNetwork
 from torchboost.adaptive.architecture_regularization import architecture_state
-
+from torchboost.adaptive.residual_adapter import (\n    grow_frozen_backbone_adapter,\n    partition_adapter_parameters,\n)\n
 NTRAIN=500_000
 SEED=509
 ADAPTER_EPOCHS=4
@@ -43,43 +43,11 @@ INITIAL_SCALE=1.0/(1.0+math.exp(2.0))
 
 
 def build_adapter(anchor, *, learn_scales):
-    model=deepcopy(anchor)
-    for p in model.parameters():
-        p.requires_grad_(False)
-    for layer in model.layers:
-        layer.grow_one_level()
-        layer.set_architecture_scale(INITIAL_SCALE,learnable=learn_scales)
-        tree=layer.forest.trees[0]
-        root=layer.root
-        # Freeze inherited affine packet. Train only routing plus newborn
-        # residual packets, exactly matching the successful all_residual arm.
-        root.value.requires_grad_(False)
-        root.linear_value.requires_grad_(False)
-        if root.routing_weight is not None:
-            root.routing_weight.requires_grad_(True)
-        if root.routing_bias is not None:
-            root.routing_bias.requires_grad_(True)
-        for child_id in root.children_ids:
-            child=tree.get(child_id)
-            child.value.requires_grad_(True)
-            if child.linear_value is not None:
-                child.linear_value.requires_grad_(True)
-            child.allocation_logit.requires_grad_(False)
-    return model
+    return grow_frozen_backbone_adapter(anchor, learn_scales=learn_scales)
 
 
 def partition(model):
-    scales=[];residual=[]
-    for name,p in model.named_parameters():
-        if not p.requires_grad:
-            continue
-        if name.endswith("architecture_logit"):
-            scales.append(p)
-        else:
-            residual.append(p)
-    if not residual:
-        raise RuntimeError("adapter has no residual parameters")
-    return residual,scales
+    return partition_adapter_parameters(model)
 
 
 def train_adapter(
