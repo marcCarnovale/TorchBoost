@@ -10,6 +10,10 @@ on:
       - '.github/workflows/external-adapter-benchmark.yml'
   workflow_dispatch:
 
+concurrency:
+  group: external-adapter-benchmark-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
