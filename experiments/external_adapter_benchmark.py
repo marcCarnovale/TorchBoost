@@ -23,10 +23,10 @@ import argparse
 import json
 import math
 import os
-from pathlib import Path
 import platform
 import subprocess
 import time
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -90,7 +90,7 @@ def source_sha():
         return subprocess.check_output(
             ["git", "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL
         ).strip()
-    except Exception:
+    except (OSError, subprocess.CalledProcessError):
         return None
 
 
