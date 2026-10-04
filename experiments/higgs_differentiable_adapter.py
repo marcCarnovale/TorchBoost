@@ -28,10 +28,16 @@ import torch
 from sklearn.preprocessing import StandardScaler
 
 from experiments.higgs_canonical_scaling import (
-    LOW_FEATURES, arrays, fixed_splits, materialize, metrics,
+    LOW_FEATURES,
+    arrays,
+    fixed_splits,
+    materialize,
+    metrics,
 )
 from experiments.higgs_differentiable_architecture import (
-    BATCH, probability, train_anchor,
+    BATCH,
+    probability,
+    train_anchor,
 )
 from experiments.higgs_hybrid_benchmark import MLP
 from torchboost.adaptive.architecture_corners import CompositionalTreeNetwork
