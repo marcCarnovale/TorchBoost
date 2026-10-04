@@ -12,7 +12,6 @@ from dataclasses import dataclass
 
 from torch import nn
 
-
 SIGMOID_MINUS_TWO = 1.0 / (1.0 + math.exp(2.0))
 
 
