@@ -12,6 +12,7 @@ a separate experiment and must not be inferred from exact embedding.
 from __future__ import annotations
 
 import math
+
 import torch
 from torch import nn
 
@@ -87,7 +88,7 @@ class ObliviousSoftForest(nn.Module):
             tree.release(learn_temperature=learn_temperature)
 
     @classmethod
-    def from_catboost_json(cls, payload: dict) -> "ObliviousSoftForest":
+    def from_catboost_json(cls, payload: dict) -> ObliviousSoftForest:
         """Import a numerical scalar-output CatBoost JSON model exactly."""
         floats = payload.get("features_info", {}).get("float_features", [])
         if not floats:
@@ -310,7 +311,7 @@ class CompositionalTreeNetwork(nn.Module):
     @classmethod
     def from_mlp(
         cls, mlp: nn.Module, *, max_tree_depth: int = 3, seed: int = 0
-    ) -> "CompositionalTreeNetwork":
+    ) -> CompositionalTreeNetwork:
         sequence = getattr(mlp, "net", None)
         if sequence is None:
             raise ValueError("expected an MLP with a .net Sequential module")
