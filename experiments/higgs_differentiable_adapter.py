@@ -30,10 +30,10 @@ from sklearn.preprocessing import StandardScaler
 from experiments.higgs_canonical_scaling import (
     LOW_FEATURES, arrays, fixed_splits, materialize, metrics,
 )
-from experiments.higgs_hybrid_benchmark import MLP
 from experiments.higgs_differentiable_architecture import (
     BATCH, probability, train_anchor,
 )
+from experiments.higgs_hybrid_benchmark import MLP
 from torchboost.adaptive.architecture_corners import CompositionalTreeNetwork
 from torchboost.adaptive.architecture_regularization import architecture_state
 from torchboost.adaptive.residual_adapter import (
@@ -236,8 +236,8 @@ def run(csv_gz,cache,out,checkpoint_dir,seed=SEED):
         "protocol":"research/higgs_scale_source_control_protocol.md",
         "shadow_protocol":"experiments/higgs_shadow_protocol.json",
         "selection_partition":{
-            "architecture_rows":int(len(architecture_x)),
-            "checkpoint_rows":int(len(checkpoint_x)),
+            "architecture_rows":len(architecture_x),
+            "checkpoint_rows":len(checkpoint_x),
             "rule":"first_half_architecture_second_half_checkpoint",
         },
         "initial_scale":INITIAL_SCALE,
