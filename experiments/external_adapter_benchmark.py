@@ -34,10 +34,12 @@ import torch
 from catboost import CatBoostClassifier
 from lightgbm import LGBMClassifier
 from sklearn.datasets import fetch_openml
+from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import log_loss, roc_auc_score
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import LabelEncoder, OneHotEncoder, StandardScaler
 from xgboost import XGBClassifier
 
 from experiments.higgs_hybrid_benchmark import MLP
@@ -106,19 +108,57 @@ def load_dataset(name):
     did = DATASETS[name]
     bunch = fetch_openml(data_id=did, as_frame=True, parser="auto")
     x = bunch.data.copy()
-    x = x.apply(pd.to_numeric, errors="coerce")
     y = LabelEncoder().fit_transform(np.asarray(bunch.target).astype(str))
     if len(np.unique(y)) != 2:
         raise ValueError(f"{name} is not binary after loading")
-    missing_before = int(x.isna().sum().sum())
+    numeric_columns = x.select_dtypes(include=[np.number]).columns.tolist()
+    categorical_columns = [
+        column for column in x.columns if column not in numeric_columns
+    ]
     metadata = {
         "openml_id": did,
         "openml_name": getattr(bunch, "details", {}).get("name", name),
         "openml_version": getattr(bunch, "details", {}).get("version"),
-        "missing_values_imputed": missing_before,
+        "raw_missing_values": int(x.isna().sum().sum()),
+        "raw_numeric_features": len(numeric_columns),
+        "raw_categorical_features": len(categorical_columns),
         "positive_fraction": float(np.mean(y)),
     }
     return x, y.astype("float32"), metadata
+
+
+def fit_preprocessor(train_x):
+    numeric_columns = train_x.select_dtypes(include=[np.number]).columns.tolist()
+    categorical_columns = [
+        column for column in train_x.columns if column not in numeric_columns
+    ]
+    numeric = Pipeline(
+        [
+            ("imputer", SimpleImputer(strategy="median")),
+            ("scale", StandardScaler()),
+        ]
+    )
+    categorical = Pipeline(
+        [
+            ("imputer", SimpleImputer(strategy="most_frequent")),
+            (
+                "one_hot",
+                OneHotEncoder(
+                    handle_unknown="ignore",
+                    sparse_output=False,
+                    dtype=np.float32,
+                ),
+            ),
+        ]
+    )
+    return ColumnTransformer(
+        [
+            ("numeric", numeric, numeric_columns),
+            ("categorical", categorical, categorical_columns),
+        ],
+        remainder="drop",
+        sparse_threshold=0.0,
+    )
 
 
 def splits(x, y, seed):
@@ -350,14 +390,10 @@ def run(name, seed, out):
 
     x, y, metadata = load_dataset(name)
     (tx, ty), (sx, sy), (qx, qy) = splits(x, y, seed)
-    imputer = SimpleImputer(strategy="median").fit(tx)
-    tx = imputer.transform(tx).astype("float32")
-    sx = imputer.transform(sx).astype("float32")
-    qx = imputer.transform(qx).astype("float32")
-    scaler = StandardScaler().fit(tx)
-    tx = scaler.transform(tx).astype("float32")
-    sx = scaler.transform(sx).astype("float32")
-    qx = scaler.transform(qx).astype("float32")
+    preprocessor = fit_preprocessor(tx)
+    tx = np.asarray(preprocessor.fit_transform(tx), dtype="float32")
+    sx = np.asarray(preprocessor.transform(sx), dtype="float32")
+    qx = np.asarray(preprocessor.transform(qx), dtype="float32")
 
     width, depth = capacity(len(x))
     batch = min(256, max(32, len(tx) // 8))
@@ -426,16 +462,18 @@ def run(name, seed, out):
         **metadata,
         "seed": seed,
         "rows": len(x),
-        "features": x.shape[1],
+        "raw_features": x.shape[1],
+        "transformed_features": tx.shape[1],
         "split_rows": {
             "train": len(tx),
             "selection": len(sx),
             "ranking": len(qx),
         },
         "preprocessing": {
-            "numeric_coercion": True,
-            "median_imputation_fit_on_train_only": True,
-            "standard_scaler_fit_on_train_only": True,
+            "fit_on_train_only": True,
+            "numeric": "median imputation + standard scaling",
+            "categorical": "most-frequent imputation + one-hot encoding",
+            "unknown_categories": "ignored at transform time",
         },
         "environment": {
             "python": platform.python_version(),
