@@ -20,7 +20,6 @@ ranking metrics, learned architecture state, source SHA, and package versions.
 from __future__ import annotations
 
 import argparse
-from copy import deepcopy
 import json
 import math
 import os
