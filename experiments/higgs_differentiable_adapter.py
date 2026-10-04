@@ -120,16 +120,28 @@ def train_adapter(
 
         sel=metrics(selection_y,probability(model,selection_x))
         state=architecture_state(model)
-        row={"epoch":epoch+1,"selection":sel,"architecture":state}
+        checkpoint_eligible = scale_source == "none" or scale_updates > 0
+        row={
+            "epoch":epoch+1,
+            "selection":sel,
+            "architecture":state,
+            "scale_updates_so_far":scale_updates,
+            "checkpoint_eligible":checkpoint_eligible,
+        }
         history.append(row)
         print(json.dumps({"scale_source":scale_source,**row}),flush=True)
-        if sel["nll"]<best[0]:
+        if checkpoint_eligible and sel["nll"]<best[0]:
             best=(
                 sel["nll"],
                 {k:v.detach().clone() for k,v in model.state_dict().items()},
                 epoch+1,state,
             )
 
+    if best[1] is None:
+        raise RuntimeError(
+            f"{scale_source} arm never reached an eligible checkpoint; "
+            "increase epochs or reduce scale warmup"
+        )
     model.load_state_dict(best[1])
     return {
         "best_epoch":best[2],"best_architecture":best[3],"history":history,
