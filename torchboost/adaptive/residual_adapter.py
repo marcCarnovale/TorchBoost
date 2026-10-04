@@ -6,9 +6,9 @@ centralized here so HIGGS and transfer studies cannot silently diverge.
 """
 from __future__ import annotations
 
+import math
 from copy import deepcopy
 from dataclasses import dataclass
-import math
 
 from torch import nn
 
