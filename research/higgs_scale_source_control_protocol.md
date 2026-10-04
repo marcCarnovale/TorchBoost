@@ -23,8 +23,14 @@ optimizer, initialization, minibatch order, adapter epochs, and ranking set.
    on that matched cadence.
 
 Residual routing/packet parameters are trained from TRAIN in all three arms.
-The scale optimizer, learning rate, clipping rule, warmup, and update count are
-matched between train-scale and heldout-scale.
+The scale optimizer, learning rate, clipping rule, warmup, batch size, update
+count, and update ordering are matched between train-scale and heldout-scale.
+
+At every scheduled scale update, the residual step occurs first. Each
+trainable-scale arm then performs a separate scale-only forward/backward pass:
+train-scale draws that batch from TRAIN, while heldout-scale draws it from
+ARCHITECTURE-SELECTION. The two arms therefore receive matched scale-only
+example exposure and differ only in the source of those examples.
 
 ## Primary comparison
 
