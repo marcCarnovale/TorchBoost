@@ -5,7 +5,10 @@ on:
     branches: [research/unified-progressive-2026-09-24]
     paths:
       - 'experiments/external_adapter_benchmark.py'
+      - 'experiments/higgs_differentiable_adapter.py'
       - 'experiments/summarize_external_adapter_benchmark.py'
+      - 'torchboost/adaptive/residual_adapter.py'
+      - 'tests/test_higgs_differentiable_adapter.py'
       - 'research/external_adapter_benchmark_protocol.md'
       - '.github/workflows/external-adapter-benchmark.yml'
   workflow_dispatch:
