@@ -84,9 +84,13 @@ def train_adapter(
     loss_fn=torch.nn.BCEWithLogitsLoss()
     train_rng=torch.Generator().manual_seed(seed)
     selection_rng=torch.Generator().manual_seed(seed+97)
+    train_scale_rng=torch.Generator().manual_seed(seed+193)
     best=(float("inf"),None,0,None)
     history=[]
-    train_examples=0;selection_examples=0;scale_updates=0
+    train_examples=0
+    train_scale_examples=0
+    selection_examples=0
+    scale_updates=0
     started=time.perf_counter()
 
     for epoch in range(epochs):
@@ -94,6 +98,8 @@ def train_adapter(
         order=torch.randperm(len(train_x),generator=train_rng)
         sorder=torch.randperm(len(selection_x),generator=selection_rng)
         scursor=0
+        torder=torch.randperm(len(train_x),generator=train_scale_rng)
+        tcursor=0
         for bi,start in enumerate(range(0,len(order),BATCH)):
             idx=order[start:start+BATCH].numpy()
             xb=torch.from_numpy(train_x[idx]);yb=torch.from_numpy(train_y[idx])
@@ -109,9 +115,18 @@ def train_adapter(
                 learn_scales and epoch>=warmup_epochs and (bi+1)%ARCH_EVERY==0
             )
             if scheduled_scale_update and scale_source == "train":
+                if tcursor+BATCH>len(torder):
+                    torder=torch.randperm(len(train_x),generator=train_scale_rng)
+                    tcursor=0
+                tidx=torder[tcursor:tcursor+BATCH].numpy();tcursor+=BATCH
+                tx=torch.from_numpy(train_x[tidx])
+                ty=torch.from_numpy(np.asarray(train_y[tidx],dtype="float32"))
+                residual_opt.zero_grad(set_to_none=True);scale_opt.zero_grad(set_to_none=True)
+                tloss=loss_fn(model(tx),ty)
+                tloss.backward()
                 torch.nn.utils.clip_grad_norm_(scale_params,2.)
                 scale_opt.step()
-                scale_updates+=1
+                train_scale_examples+=len(tidx);scale_updates+=1
             elif scheduled_scale_update and scale_source == "selection":
                 if scursor+BATCH>len(sorder):
                     sorder=torch.randperm(len(selection_x),generator=selection_rng)
@@ -157,6 +172,7 @@ def train_adapter(
         "best_epoch":best[2],"best_architecture":best[3],"history":history,
         "seconds":time.perf_counter()-started,
         "train_examples_seen":train_examples,
+        "train_examples_seen_by_scales":train_scale_examples,
         "selection_examples_seen_by_scales":selection_examples,
         "scale_updates":scale_updates,
     }
