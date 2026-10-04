@@ -128,79 +128,23 @@ and cooling from whole-controller time constants. When topology changes, stored 
 inductive energy are preserved while component values are recalibrated. This prevents the same
 controller configuration from changing meaning merely because a tree grows.
 
-## Current evidence
+## Evidence and protocols
 
-### HIGGS architecture-space result
+- `research/RESULTS.md` — auditable SHAs, Actions runs, jobs, artifacts, and
+  valid/invalid evidence status.
+- `research/NEURAL_TREE_ADAPTER_NOTE.md` — paper-shaped statement of the
+  architecture, current HIGGS evidence, controls, and claim boundary.
+- `research/higgs_scale_source_control_protocol.md` — corrected causal
+  heldout-scale vs TRAIN-scale control.
+- `research/external_adapter_benchmark_protocol.md` — frozen seven-dataset
+  transfer study with TRAIN-only preprocessing and dataset-clustered inference.
+- `experiments/higgs_shadow_protocol.json` — unopened final HIGGS shadow lock.
 
-The current research branch treats CatBoost and a five-layer ReLU MLP as
-calibrated corners inside a larger TorchBoost architecture space rather than
-defining TorchBoost as one historical progressive-forest configuration.
-
-On the canonical 500k-row, 21-feature HIGGS protocol:
-
-- the depth-zero compositional TorchBoost endpoint reproduces the canonical MLP
-  training path exactly;
-- imported numerical CatBoost symmetric trees reproduce the fitted CatBoost
-  predictor to numerical precision;
-- growing zero-at-birth affine tree residual adapters in all five hidden layers,
-  freezing the inherited MLP backbone/head, and training only the residual
-  packets/routing improves materially over the MLP anchor;
-- most importantly, held-out differentiable learning of the five residual
-  scales improves over an otherwise identical fixed-scale adapter.
-
-The decisive differentiable-adapter study is GitHub Actions run
-`36525742176`, source SHA
-`265a8e040a060080d198bb5fce5578a1ccc1825f`.  Both arms begin at residual
-scale `sigmoid(-2) = 0.1192029` and receive the same residual/routing training
-budget.  The fixed-scale adapter reached ranking NLL/AUC
-`0.57106812 / 0.76946808`; the held-out learned-scale adapter reached
-`0.57049915 / 0.76991939`, an improvement of `-0.00056897` NLL and
-`+0.00045131` AUC from architecture-scale learning itself.  Relative to the
-canonical MLP anchor in the same study, the learned adapter improved ranking by
-about `-0.00304` NLL and `+0.00445` AUC.
-
-The learned residual scales were approximately
-`[0.1329, 0.0923, 0.0644, 0.0423, 0.0385]`: a data-selected taper from a
-slightly strengthened first-layer correction to progressively smaller deeper
-corrections.  This is evidence that differentiable held-out architecture
-learning can discover a better hybrid point inside this restricted adapter
-family, not merely that TorchBoost can represent one.
-
-The replicated adapter mechanism is now centralized in
-`torchboost/adaptive/residual_adapter.py`; HIGGS and external-transfer studies
-use the same function-preserving model surgery rather than maintaining separate
-copies.
-
-A frozen external-transfer benchmark is also running across seven public
-OpenML binary datasets and five predeclared seeds. It compares the learned
-adapter against its MLP anchor, the identical fixed-scale adapter, CatBoost,
-XGBoost, and LightGBM under train-only preprocessing and paired
-train/selection/ranking splits. The workflow emits machine-readable per-cell
-records plus an aggregate report with paired deltas, win/tie/loss counts,
-standard errors, and deterministic bootstrap intervals. See
-`research/external_adapter_benchmark_protocol.md`. No external benchmark
-result is claimed here until that frozen matrix completes.
-
-These are **selection/ranking development results**.  The fresh shadow audit
-defined in `experiments/higgs_shadow_protocol.json` remains unopened.  No
-claim of final unseen-test or broad benchmark superiority is made from these
-numbers.
-
-Recorded development results also include:
-
-- one affine-residual power-tree configuration beating a much larger CatBoost ensemble on a controlled
-  context-dependent affine problem; this is a development result, not a broad leaderboard claim;
-- grouped-oblique routing helping when a related feature block is deliberately rotated, while hurting
-  when the natural axis-aligned representation is already correct;
-- recurring-domain A→B→A experiments where adaptive memory/control can improve return performance,
-  while A→B→C can punish excessive retention;
-- current topology-normalized recurring A→B→A→B→A screens where capacitor control improves over the
-  matched no-control model on two development seeds. These are mechanism-development results, not
-  evidence of general superiority.
-
-The project target is stronger than XGBoost: comparisons should include CatBoost and other strong
-tabular references. Physics/control improvements are expected to be incremental; the statistical
-backbone must earn competitiveness on its own.
+Secondary development evidence exists for affine-residual power trees,
+grouped-oblique routing, recurring-domain memory/control, and
+topology-normalized physical controllers. Those experiments remain exploratory
+and are not promoted to the same evidentiary status as the replicated HIGGS
+adapter result.
 
 ## Install
 
