@@ -67,11 +67,16 @@ def train_adapter(
     model,train_x,train_y,selection_x,selection_y,*,
     epochs,seed,scale_source,warmup_epochs,
     checkpoint_x=None,checkpoint_y=None,
+    train_scale_x=None,train_scale_y=None,
 ):
     if checkpoint_x is None:
         checkpoint_x=selection_x
     if checkpoint_y is None:
         checkpoint_y=selection_y
+    if train_scale_x is None:
+        train_scale_x=train_x
+    if train_scale_y is None:
+        train_scale_y=train_y
     if scale_source not in {"none", "train", "selection"}:
         raise ValueError("scale_source must be none, train, or selection")
     learn_scales = scale_source != "none"
@@ -98,7 +103,7 @@ def train_adapter(
         order=torch.randperm(len(train_x),generator=train_rng)
         sorder=torch.randperm(len(selection_x),generator=selection_rng)
         scursor=0
-        torder=torch.randperm(len(train_x),generator=train_scale_rng)
+        torder=torch.randperm(len(train_scale_x),generator=train_scale_rng)
         tcursor=0
         for bi,start in enumerate(range(0,len(order),BATCH)):
             idx=order[start:start+BATCH].numpy()
@@ -116,11 +121,13 @@ def train_adapter(
             )
             if scheduled_scale_update and scale_source == "train":
                 if tcursor+BATCH>len(torder):
-                    torder=torch.randperm(len(train_x),generator=train_scale_rng)
+                    torder=torch.randperm(
+                        len(train_scale_x),generator=train_scale_rng
+                    )
                     tcursor=0
                 tidx=torder[tcursor:tcursor+BATCH].numpy();tcursor+=BATCH
-                tx=torch.from_numpy(train_x[tidx])
-                ty=torch.from_numpy(np.asarray(train_y[tidx],dtype="float32"))
+                tx=torch.from_numpy(train_scale_x[tidx])
+                ty=torch.from_numpy(np.asarray(train_scale_y[tidx],dtype="float32"))
                 residual_opt.zero_grad(set_to_none=True);scale_opt.zero_grad(set_to_none=True)
                 tloss=loss_fn(model(tx),ty)
                 tloss.backward()
@@ -194,6 +201,9 @@ def run(csv_gz,cache,out,checkpoint_dir,seed=SEED):
     checkpoint_y=selection_y[selection_mid:]
     ranking_x=scaler.transform(splits["ranking"][0]).astype("float32")
     train_y=np.asarray(splits["train"][1],dtype="float32")
+    train_scale_rows=len(architecture_x)
+    train_scale_x=train_x[:train_scale_rows]
+    train_scale_y=train_y[:train_scale_rows]
 
     torch.manual_seed(family_seed+305)
     reference=MLP(LOW_FEATURES,300,5,.1)
@@ -227,6 +237,7 @@ def run(csv_gz,cache,out,checkpoint_dir,seed=SEED):
         epochs=ADAPTER_EPOCHS,seed=training_seed,scale_source="train",
         warmup_epochs=SCALE_WARMUP_EPOCHS,
         checkpoint_x=checkpoint_x,checkpoint_y=checkpoint_y,
+        train_scale_x=train_scale_x,train_scale_y=train_scale_y,
     )
     learned_training=train_adapter(
         learned,train_x,train_y,architecture_x,architecture_y,
@@ -260,7 +271,8 @@ def run(csv_gz,cache,out,checkpoint_dir,seed=SEED):
         "selection_partition":{
             "architecture_rows":len(architecture_x),
             "checkpoint_rows":len(checkpoint_x),
-            "rule":"first_half_architecture_second_half_checkpoint",
+            "train_scale_rows":len(train_scale_x),
+            "rule":"100k_train_scale_pool_plus_first_half_architecture_second_half_checkpoint",
         },
         "initial_scale":INITIAL_SCALE,
         "anchor":{"selection":anchor_sel,"ranking":anchor_rank,**anchor_training},
