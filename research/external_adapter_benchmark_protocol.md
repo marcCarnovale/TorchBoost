@@ -30,7 +30,7 @@ For each dataset and each seed, stratified 60/20/20 train/selection/ranking spli
 - 4099
 - 8191
 
-Imputation and standardization are fit on TRAIN only. SELECTION may be used for checkpointing, early stopping, and the adapter's architecture-scale updates. RANKING is evaluation only.
+All preprocessing is fit on TRAIN only. Numeric columns use median imputation plus standard scaling. Categorical columns use most-frequent imputation plus one-hot encoding with unknown categories ignored at transform time. No categorical column may be silently coerced to missing. SELECTION may be used for checkpointing, early stopping, and the adapter's architecture-scale updates. RANKING is evaluation only.
 
 ## Frozen neural family
 
