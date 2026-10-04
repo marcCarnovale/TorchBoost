@@ -40,8 +40,23 @@ answer this causal question by themselves.
 
 ## Data discipline
 
-TRAIN and SELECTION may be used exactly as described above. RANKING is
-evaluation only. The fresh HIGGS shadow audit at rows
+The existing 200k-row development SELECTION block is deterministically split
+before this corrected control is interpreted:
+
+- first 100k rows: **ARCHITECTURE-SELECTION**, used only for heldout-scale
+  gradient updates;
+- second 100k rows: **CHECKPOINT-SELECTION**, used to choose the retained
+  checkpoint for all three arms.
+
+TRAIN supplies residual updates in every arm and scale updates only in the
+train-scale arm. This prevents the heldout-scale optimizer from consuming the
+same examples used to select its checkpoint.
+
+For trainable-scale arms, checkpoints before the first actual scale update are
+ineligible. This prevents a pre-warmup checkpoint from masquerading as a
+train-scale result.
+
+RANKING is evaluation only. The fresh HIGGS shadow audit at rows
 `[9,600,000, 10,100,000)` remains unopened and must not be accessed by this
 study.
 
