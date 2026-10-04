@@ -32,8 +32,8 @@ import numpy as np
 import torch
 from catboost import CatBoostClassifier
 from lightgbm import LGBMClassifier
-from sklearn.datasets import fetch_openml
 from sklearn.compose import ColumnTransformer
+from sklearn.datasets import fetch_openml
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import log_loss, roc_auc_score
 from sklearn.model_selection import train_test_split
