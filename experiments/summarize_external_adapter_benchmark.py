@@ -21,7 +21,8 @@ def load_records(root: Path):
     for path in sorted(root.rglob("*.json")):
         try:
             obj = json.loads(path.read_text())
-        except Exception:
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"Skipping unreadable benchmark record {path}: {exc}")
             continue
         if (
             obj.get("protocol_version") == "external-adapter-v2-frozen"
@@ -50,7 +51,7 @@ def interval(values, seed=20261002, draws=20000):
         "median": median,
         "se": se,
         "ci95": [float(lo), float(hi)],
-        "n": int(len(x)),
+        "n": len(x),
     }
 
 
@@ -183,11 +184,15 @@ def markdown(summary):
         "# External residual-adapter benchmark summary",
         "",
         f"Protocol: `{summary['protocol_version']}`.",
-        f"Completed records: **{summary['records']}** across "
-        f"**{len(summary['datasets'])} datasets** and seeds {summary['seeds']}.",
+        (
+            f"Completed records: **{summary['records']}** across "
+            f"**{len(summary['datasets'])} datasets** and seeds {summary['seeds']}."
+        ),
         "",
-        "**Primary inferential unit: dataset.** Seed replicates are averaged within "
-        "each dataset before cross-dataset uncertainty is computed.",
+        (
+            "**Primary inferential unit: dataset.** Seed replicates are averaged within "
+            "each dataset before cross-dataset uncertainty is computed."
+        ),
         "",
         "The HIGGS shadow audit remains unopened.",
         "",
@@ -216,8 +221,10 @@ def markdown(summary):
         "",
         "## Absolute metrics",
         "",
-        "Absolute NLL/AUC are shown only as descriptive averages of per-dataset "
-        "means; heterogeneous tasks should not be interpreted as one pooled test set.",
+        (
+            "Absolute NLL/AUC are shown only as descriptive averages of per-dataset "
+            "means; heterogeneous tasks should not be interpreted as one pooled test set."
+        ),
         "",
         "| Model | mean of dataset NLL means | mean of dataset AUC means |",
         "|---|---:|---:|",
