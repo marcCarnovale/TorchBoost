@@ -6,7 +6,6 @@ import torch
 from torch import nn
 
 import experiments.higgs_differentiable_adapter as adapter_experiment
-
 from experiments.higgs_differentiable_adapter import (
     INITIAL_SCALE,
     build_adapter,
@@ -113,3 +112,22 @@ def test_scale_source_is_explicit():
             model,x,y,x,y,epochs=1,seed=1,
             scale_source="invalid",warmup_epochs=0,
         )
+
+
+def test_learned_scale_checkpoint_must_follow_first_scale_update(monkeypatch):
+    monkeypatch.setattr(adapter_experiment, "BATCH", 32)
+    rng=np.random.default_rng(29)
+    x=rng.normal(size=(128,4)).astype("float32")
+    y=(x[:,0]-0.3*x[:,2]>0).astype("float32")
+    sx=rng.normal(size=(96,4)).astype("float32")
+    sy=(sx[:,0]-0.3*sx[:,2]>0).astype("float32")
+
+    model=build_adapter(anchor(),learn_scales=True)
+    result=train_adapter(
+        model,x,y,sx,sy,epochs=2,seed=303,
+        scale_source="train",warmup_epochs=1,
+    )
+    assert result["scale_updates"]>0
+    assert result["best_epoch"]>=2
+    assert result["history"][0]["checkpoint_eligible"] is False
+    assert result["history"][1]["checkpoint_eligible"] is True
