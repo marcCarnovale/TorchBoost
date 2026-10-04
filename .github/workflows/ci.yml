@@ -23,7 +23,8 @@ jobs:
             experiments/external_adapter_benchmark.py \
             experiments/summarize_external_adapter_benchmark.py \
             tests/test_higgs_differentiable_adapter.py \
-            tests/test_external_adapter_summary.py
+            tests/test_external_adapter_summary.py tests/test_external_adapter_preprocessing.py \
+            tests/test_external_adapter_preprocessing.py
   test:
     needs: lint
     runs-on: ubuntu-latest
