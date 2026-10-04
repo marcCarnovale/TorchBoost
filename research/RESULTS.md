@@ -45,6 +45,29 @@ minus fixed ranking delta is approximately ΔNLL `-0.000230371` and ΔAUC
 `+0.000293058`. The larger per-seed improvements versus the MLP anchor are a
 different comparison and are not reported in this table.
 
+## HIGGS scale-source causal control
+
+### Invalid first attempt — retained for provenance, not evidence
+
+- Source SHA: `bba7028547e46615f0efb0429a58ddd28251f901`
+- GitHub Actions run: `37073647196`
+- Job: `111058769477`
+- Artifact: `11256446010`
+- Status: completed computationally, **invalid for the primary causal comparison**
+- Fresh shadow audit opened: **no**
+
+The train-scale arm executed scheduled scale updates, but checkpoint selection
+restored epoch 1, which occurred before the warmup permitted any scale update.
+Its retained scale coefficients therefore remained at their initialization.
+The apparent heldout-vs-train-scale ranking difference from this run must not be
+cited as evidence that held-out architecture learning beats TRAIN-updated
+scales.
+
+The corrected control requires all trainable-scale checkpoints to occur after
+at least one scale update and splits the development SELECTION block into
+disjoint architecture-update and checkpoint-selection halves. See
+`research/higgs_scale_source_control_protocol.md`.
+
 ## Frozen mechanism
 
 The implementation used by current HIGGS and transfer studies is centralized
