@@ -93,6 +93,7 @@ def test_train_and_selection_scale_sources_have_matched_update_counts(monkeypatc
     train_result=train_adapter(
         train_model,x,y,sx,sy,epochs=2,seed=101,
         scale_source="train",warmup_epochs=0,
+        train_scale_x=x[:len(sx)],train_scale_y=y[:len(sy)],
     )
     heldout_result=train_adapter(
         heldout_model,x,y,sx,sy,epochs=2,seed=101,
