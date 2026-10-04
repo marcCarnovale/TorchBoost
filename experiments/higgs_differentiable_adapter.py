@@ -60,7 +60,12 @@ def partition(model):
 def train_adapter(
     model,train_x,train_y,selection_x,selection_y,*,
     epochs,seed,scale_source,warmup_epochs,
+    checkpoint_x=None,checkpoint_y=None,
 ):
+    if checkpoint_x is None:
+        checkpoint_x=selection_x
+    if checkpoint_y is None:
+        checkpoint_y=selection_y
     if scale_source not in {"none", "train", "selection"}:
         raise ValueError("scale_source must be none, train, or selection")
     learn_scales = scale_source != "none"
@@ -117,7 +122,7 @@ def train_adapter(
                 scale_opt.step()
                 selection_examples+=len(sidx);scale_updates+=1
 
-        sel=metrics(selection_y,probability(model,selection_x))
+        sel=metrics(checkpoint_y,probability(model,checkpoint_x))
         state=architecture_state(model)
         checkpoint_eligible = scale_source == "none" or scale_updates > 0
         row={
@@ -159,6 +164,12 @@ def run(csv_gz,cache,out,checkpoint_dir,seed=SEED):
     scaler=StandardScaler().fit(splits["train"][0])
     train_x=scaler.transform(splits["train"][0]).astype("float32")
     selection_x=scaler.transform(splits["selection"][0]).astype("float32")
+    selection_y=np.asarray(splits["selection"][1],dtype="float32")
+    selection_mid=len(selection_x)//2
+    architecture_x=selection_x[:selection_mid]
+    architecture_y=selection_y[:selection_mid]
+    checkpoint_x=selection_x[selection_mid:]
+    checkpoint_y=selection_y[selection_mid:]
     ranking_x=scaler.transform(splits["ranking"][0]).astype("float32")
     train_y=np.asarray(splits["train"][1],dtype="float32")
 
@@ -178,32 +189,35 @@ def run(csv_gz,cache,out,checkpoint_dir,seed=SEED):
     fixed=build_adapter(anchor,learn_scales=False)
     train_scale=build_adapter(anchor,learn_scales=True)
     learned=build_adapter(anchor,learn_scales=True)
-    probe=selection_x[:8192]
+    probe=architecture_x[:8192]
     for name,model in (("fixed",fixed),("train_scale",train_scale),("learned",learned)):
         diff=float(np.max(np.abs(probability(model,probe)-probability(anchor,probe))))
         if diff>3e-6: raise RuntimeError(f"{name} adapter changed birth function: {diff}")
 
     training_seed=family_seed+19001
     fixed_training=train_adapter(
-        fixed,train_x,train_y,selection_x,splits["selection"][1],
-        epochs=ADAPTER_EPOCHS,seed=training_seed,scale_source="none",warmup_epochs=0
+        fixed,train_x,train_y,architecture_x,architecture_y,
+        epochs=ADAPTER_EPOCHS,seed=training_seed,scale_source="none",warmup_epochs=0,
+        checkpoint_x=checkpoint_x,checkpoint_y=checkpoint_y,
     )
     train_scale_training=train_adapter(
-        train_scale,train_x,train_y,selection_x,splits["selection"][1],
+        train_scale,train_x,train_y,architecture_x,architecture_y,
         epochs=ADAPTER_EPOCHS,seed=training_seed,scale_source="train",
-        warmup_epochs=SCALE_WARMUP_EPOCHS
+        warmup_epochs=SCALE_WARMUP_EPOCHS,
+        checkpoint_x=checkpoint_x,checkpoint_y=checkpoint_y,
     )
     learned_training=train_adapter(
-        learned,train_x,train_y,selection_x,splits["selection"][1],
+        learned,train_x,train_y,architecture_x,architecture_y,
         epochs=ADAPTER_EPOCHS,seed=training_seed,scale_source="selection",
-        warmup_epochs=SCALE_WARMUP_EPOCHS
+        warmup_epochs=SCALE_WARMUP_EPOCHS,
+        checkpoint_x=checkpoint_x,checkpoint_y=checkpoint_y,
     )
 
-    fixed_sel=metrics(splits["selection"][1],probability(fixed,selection_x))
+    fixed_sel=metrics(checkpoint_y,probability(fixed,checkpoint_x))
     fixed_rank=metrics(splits["ranking"][1],probability(fixed,ranking_x))
-    train_scale_sel=metrics(splits["selection"][1],probability(train_scale,selection_x))
+    train_scale_sel=metrics(checkpoint_y,probability(train_scale,checkpoint_x))
     train_scale_rank=metrics(splits["ranking"][1],probability(train_scale,ranking_x))
-    learned_sel=metrics(splits["selection"][1],probability(learned,selection_x))
+    learned_sel=metrics(checkpoint_y,probability(learned,checkpoint_x))
     learned_rank=metrics(splits["ranking"][1],probability(learned,ranking_x))
 
     checkpoint_dir=Path(checkpoint_dir);checkpoint_dir.mkdir(parents=True,exist_ok=True)
@@ -219,20 +233,26 @@ def run(csv_gz,cache,out,checkpoint_dir,seed=SEED):
     result={
         "status":"completed","source":source,"seed":seed,"family_seed":family_seed,
         "ntrain":NTRAIN,"audit_opened":False,"shadow_audit_opened":False,
-        "protocol":"experiments/higgs_shadow_protocol.json",
+        "protocol":"research/higgs_scale_source_control_protocol.md",
+        "shadow_protocol":"experiments/higgs_shadow_protocol.json",
+        "selection_partition":{
+            "architecture_rows":int(len(architecture_x)),
+            "checkpoint_rows":int(len(checkpoint_x)),
+            "rule":"first_half_architecture_second_half_checkpoint",
+        },
         "initial_scale":INITIAL_SCALE,
         "anchor":{"selection":anchor_sel,"ranking":anchor_rank,**anchor_training},
-        "fixed_adapter":{"selection":fixed_sel,"ranking":fixed_rank,**fixed_training},
+        "fixed_adapter":{"checkpoint_selection":fixed_sel,"ranking":fixed_rank,**fixed_training},
         "train_scale_adapter":{
-            "selection":train_scale_sel,"ranking":train_scale_rank,
+            "checkpoint_selection":train_scale_sel,"ranking":train_scale_rank,
             "architecture":architecture_state(train_scale),**train_scale_training
         },
         "learned_scale_adapter":{
-            "selection":learned_sel,"ranking":learned_rank,
+            "checkpoint_selection":learned_sel,"ranking":learned_rank,
             "architecture":architecture_state(learned),**learned_training
         },
         "deltas":{
-            "heldout_selection_nll_vs_fixed":learned_sel["nll"]-fixed_sel["nll"],
+            "heldout_checkpoint_nll_vs_fixed":learned_sel["nll"]-fixed_sel["nll"],
             "heldout_ranking_nll_vs_fixed":learned_rank["nll"]-fixed_rank["nll"],
             "heldout_ranking_auc_vs_fixed":learned_rank["auc"]-fixed_rank["auc"],
             "heldout_ranking_nll_vs_train_scale":learned_rank["nll"]-train_scale_rank["nll"],
