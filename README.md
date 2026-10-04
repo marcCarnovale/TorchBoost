@@ -29,15 +29,18 @@ seeds. The mean replicated held-out-minus-fixed effect was approximately
 **−0.000230371 NLL / +0.000293058 AUC**. Exact SHAs, run IDs, jobs, artifacts,
 and per-seed values are recorded in `research/RESULTS.md`.
 
-A new matched causal control is predeclared in
+A corrected matched causal control is predeclared in
 `research/higgs_scale_source_control_protocol.md`: the same five scales are
-trained either from TRAIN or from SELECTION with matched update cadence. This
-tests whether the gain is specifically associated with held-out architecture
-allocation rather than merely adding five trainable supervised parameters.
+trained either from TRAIN or from a held-out ARCHITECTURE-SELECTION half with
+matched update cadence, while a disjoint CHECKPOINT-SELECTION half chooses the
+retained checkpoint. This tests whether the gain is specifically associated
+with held-out architecture allocation rather than merely adding five trainable
+supervised parameters.
 
 The fresh HIGGS shadow audit at rows `[9,600,000, 10,100,000)` remains
 **unopened**. External transfer is evaluated separately on seven public OpenML
-datasets with five seeds and dataset-clustered inference.
+datasets with five seeds, TRAIN-only numeric/categorical preprocessing, and
+dataset-clustered inference.
 
 ### What is and is not claimed
 
