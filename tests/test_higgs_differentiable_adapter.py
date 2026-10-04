@@ -99,8 +99,14 @@ def test_train_and_selection_scale_sources_have_matched_update_counts(monkeypatc
         scale_source="selection",warmup_epochs=0,
     )
     assert train_result["scale_updates"]==heldout_result["scale_updates"]>0
+    assert train_result["train_examples_seen_by_scales"]>0
     assert train_result["selection_examples_seen_by_scales"]==0
+    assert heldout_result["train_examples_seen_by_scales"]==0
     assert heldout_result["selection_examples_seen_by_scales"]>0
+    assert (
+        train_result["train_examples_seen_by_scales"]
+        == heldout_result["selection_examples_seen_by_scales"]
+    )
 
 
 def test_scale_source_is_explicit():
