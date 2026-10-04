@@ -27,10 +27,13 @@ The scale optimizer, learning rate, clipping rule, warmup, batch size, update
 count, and update ordering are matched between train-scale and heldout-scale.
 
 At every scheduled scale update, the residual step occurs first. Each
-trainable-scale arm then performs a separate scale-only forward/backward pass:
-train-scale draws that batch from TRAIN, while heldout-scale draws it from
-ARCHITECTURE-SELECTION. The two arms therefore receive matched scale-only
-example exposure and differ only in the source of those examples.
+trainable-scale arm then performs a separate scale-only forward/backward pass.
+The train-scale arm draws from a fixed 100k-row subset of TRAIN; the
+heldout-scale arm draws from the 100k-row ARCHITECTURE-SELECTION subset.
+The scale-only source pools therefore have the same size. The two arms also
+receive matched scale-only example exposure and differ only in whether the
+scale data came from TRAIN or held-out development data. Residual training
+continues to use all 500k TRAIN rows.
 
 ## Primary comparison
 
