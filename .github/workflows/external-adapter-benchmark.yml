@@ -10,6 +10,7 @@ on:
       - 'torchboost/adaptive/residual_adapter.py'
       - 'tests/test_higgs_differentiable_adapter.py'
       - 'tests/test_external_adapter_summary.py'
+      - 'tests/test_external_adapter_preprocessing.py'
       - 'research/external_adapter_benchmark_protocol.md'
       - '.github/workflows/external-adapter-benchmark.yml'
   workflow_dispatch:
@@ -45,7 +46,7 @@ jobs:
           python -m pip install -e '.[dev,benchmark]' -c research-constraints-2026-09-25.txt
       - name: Verify frozen architecture contracts
         run: |
-          pytest -q tests/test_architecture_corners.py tests/test_higgs_differentiable_adapter.py tests/test_external_adapter_summary.py
+          pytest -q tests/test_architecture_corners.py tests/test_higgs_differentiable_adapter.py tests/test_external_adapter_summary.py tests/test_external_adapter_preprocessing.py
       - name: Run external benchmark cell
         run: |
           set -euo pipefail
