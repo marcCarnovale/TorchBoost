@@ -55,7 +55,7 @@ entire architecture space described elsewhere in this repository.
 
 ## Broader experimental system
 
-### Single power tree — current default research path
+### Single power tree — secondary model-tree research path
 
 A node can contribute an affine residual
 
