@@ -1,0 +1,73 @@
+name: High-capacity TorchBoost HIGGS scaling
+
+on:
+  push:
+    branches: [research/unified-progressive-2026-09-24]
+    paths:
+      - 'torchboost/adaptive/progressive.py'
+      - 'experiments/higgs_torchboost_high_capacity.py'
+      - 'tests/test_higgs_torchboost_high_capacity.py'
+      - '.github/workflows/higgs-torchboost-high-capacity.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: high-capacity-torchboost-higgs-scaling
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  high-capacity-torchboost:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        ntrain: [500000, 1000000, 3000000]
+    env:
+      OMP_NUM_THREADS: "4"
+      MKL_NUM_THREADS: "4"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install pinned research environment
+        run: |
+          python -m pip install 'torch==2.14.0' --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e '.[dev,benchmark]' -c research-constraints-2026-09-25.txt
+      - name: Verify high-capacity scaling contract
+        run: pytest -q tests/test_higgs_torchboost_high_capacity.py tests/test_progressive.py
+      - name: Download canonical UCI HIGGS
+        run: |
+          set -euo pipefail
+          if curl -fL --retry 3 --retry-delay 5 https://archive.ics.uci.edu/static/public/280/higgs.zip -o /tmp/higgs.zip; then
+            member=$(unzip -Z1 /tmp/higgs.zip | grep -E '(^|/)HIGGS\.csv\.gz$' | head -1)
+            test -n "$member"
+            unzip -p /tmp/higgs.zip "$member" > /tmp/HIGGS.csv.gz
+            rm -f /tmp/higgs.zip
+          else
+            curl -fL --retry 3 --retry-delay 5 https://archive.ics.uci.edu/ml/machine-learning-databases/00280/HIGGS.csv.gz -o /tmp/HIGGS.csv.gz
+          fi
+          test -s /tmp/HIGGS.csv.gz
+      - name: Run high-capacity TorchBoost canonical scale
+        run: |
+          set -euo pipefail
+          mkdir -p research-results /tmp/higgs-cache
+          git rev-parse HEAD > research-results/SOURCE_COMMIT.txt
+          python -m pip freeze > research-results/environment.txt
+          python -u experiments/higgs_torchboost_high_capacity.py \
+            --csv-gz /tmp/HIGGS.csv.gz \
+            --cache /tmp/higgs-cache \
+            --ntrain ${{ matrix.ntrain }} \
+            --seed 509 \
+            --out research-results/higgs-torchboost-high-capacity-${{ matrix.ntrain }}.json \
+            | tee research-results/higgs-torchboost-high-capacity-${{ matrix.ntrain }}.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: higgs-torchboost-high-capacity-${{ matrix.ntrain }}
+          path: research-results/
+          if-no-files-found: warn

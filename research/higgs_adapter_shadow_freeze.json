@@ -1,0 +1,45 @@
+{
+  "freeze": "TorchBoost HIGGS differentiable residual adapter final shadow evaluation v1",
+  "frozen_after_replication_run": 36576510711,
+  "replication_source_sha": "f18ffe936825ff4dea65d75805dc90cfecf6c5bf",
+  "replication_seeds": [
+    733,
+    2027,
+    4099
+  ],
+  "training": {
+    "ntrain": 500000,
+    "anchor": "canonical 5x300 ReLU MLP endpoint",
+    "backbone_and_head": "frozen during adapter training",
+    "residual_structure": "one zero-at-birth affine tree refinement in every hidden layer",
+    "initial_residual_scale": 0.11920292202211755,
+    "adapter_epochs": 4,
+    "scale_warmup_epochs": 2,
+    "architecture_update_every_residual_minibatches": 2,
+    "residual_optimizer": "AdamW(lr=1e-3, weight_decay=1e-5)",
+    "scale_optimizer": "Adam(lr=1e-2, weight_decay=0)",
+    "scale_learning_data": "selection only",
+    "checkpoint_selection": "lowest selection NLL over adapter epochs",
+    "direct_scale_penalty": 0
+  },
+  "comparators": [
+    "learned-scale adapter",
+    "matched fixed-scale 0.119202922 adapter"
+  ],
+  "shadow": {
+    "dataset": "UCI HIGGS",
+    "range": [
+      9600000,
+      10100000
+    ],
+    "rows": 500000,
+    "evaluation": "evaluate both predeclared arms for all three independent seeds and report every seed plus unweighted mean",
+    "selection_rule": "none; shadow metrics may not choose a seed, checkpoint, architecture, hyperparameter, or follow-up configuration",
+    "retuning_after_open": false
+  },
+  "decision": "The shadow audit is a one-way final evaluation of the frozen 500k development architecture. Whatever it reports is retained.",
+  "status": "superseded_do_not_execute",
+  "superseded_reason": "A matched train-scale causal control and split architecture/checkpoint selection protocol were introduced after this freeze. Final shadow evaluation must wait for the corrected causal-control and external-transfer studies, then use a new freeze manifest.",
+  "shadow_open_authorized": false,
+  "shadow_opened": false
+}

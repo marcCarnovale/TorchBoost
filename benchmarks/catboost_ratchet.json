@@ -1,0 +1,14 @@
+{
+  "protocol": "context_affine_power_tree_v1",
+  "seeds": [71, 72],
+  "fit_rows": 12000,
+  "selection_rows": 2000,
+  "audit_rows": 3000,
+  "reported_torchboost_mean_nll": 0.6215965283733776,
+  "reported_catboost_mean_nll": 0.6596713877891798,
+  "reported_relative_advantage": 0.057717901500899,
+  "max_torchboost_mean_nll": 0.624,
+  "min_relative_advantage": 0.05,
+  "max_seed_nll": 0.630,
+  "note": "Ratchet from the 2026-09-24 two-seed single-power-tree result. Tighten these thresholds after a stronger locked result; never loosen them to make CI pass. CatBoost is pinned to 1.2.8 in the slow CI job."
+}

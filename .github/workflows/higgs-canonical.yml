@@ -1,0 +1,100 @@
+name: Canonical HIGGS scaling
+
+on:
+  push:
+    branches: [research/unified-progressive-2026-09-24]
+    paths:
+      - 'experiments/higgs_canonical_scaling.py'
+      - 'tests/test_higgs_canonical_scaling.py'
+      - '.github/workflows/higgs-canonical.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  canonical-scale-ladder:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      OMP_NUM_THREADS: "4"
+      MKL_NUM_THREADS: "4"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install pinned research environment
+        run: |
+          python -m pip install 'torch==2.14.0' --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e '.[dev,benchmark]' -c research-constraints-2026-09-25.txt
+      - name: Download canonical UCI HIGGS
+        run: |
+          set -euo pipefail
+          if curl -fL --retry 3 --retry-delay 5 https://archive.ics.uci.edu/static/public/280/higgs.zip -o /tmp/higgs.zip; then
+            member=$(unzip -Z1 /tmp/higgs.zip | grep -E '(^|/)HIGGS\.csv\.gz$' | head -1)
+            test -n "$member"
+            unzip -p /tmp/higgs.zip "$member" > /tmp/HIGGS.csv.gz
+            rm -f /tmp/higgs.zip
+          else
+            curl -fL --retry 3 --retry-delay 5 https://archive.ics.uci.edu/ml/machine-learning-databases/00280/HIGGS.csv.gz -o /tmp/HIGGS.csv.gz
+          fi
+          test -s /tmp/HIGGS.csv.gz
+          ls -lh /tmp/HIGGS.csv.gz
+      - name: Run 500k/1M/3M low-level scaling ladder
+        run: |
+          set -euo pipefail
+          mkdir -p research-results /tmp/higgs-cache
+          git rev-parse HEAD > research-results/SOURCE_COMMIT.txt
+          python -m pip freeze > research-results/environment.txt
+          python experiments/higgs_canonical_scaling.py             --csv-gz /tmp/HIGGS.csv.gz             --cache /tmp/higgs-cache             --scales 500000 1000000 3000000             --families catboost mlp torchboost             --mlp-epochs 20             --seed 509             --out research-results/higgs-canonical-scaling.json             | tee research-results/higgs-canonical-scaling.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: higgs-canonical-scaling
+          path: research-results/
+          if-no-files-found: warn
+
+  canonical-regime-anchor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      OMP_NUM_THREADS: "4"
+      MKL_NUM_THREADS: "4"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install pinned research environment
+        run: |
+          python -m pip install 'torch==2.14.0' --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e '.[dev,benchmark]' -c research-constraints-2026-09-25.txt
+      - name: Download canonical UCI HIGGS
+        run: |
+          set -euo pipefail
+          if curl -fL --retry 3 --retry-delay 5 https://archive.ics.uci.edu/static/public/280/higgs.zip -o /tmp/higgs.zip; then
+            member=$(unzip -Z1 /tmp/higgs.zip | grep -E '(^|/)HIGGS\.csv\.gz$' | head -1)
+            test -n "$member"
+            unzip -p /tmp/higgs.zip "$member" > /tmp/HIGGS.csv.gz
+            rm -f /tmp/higgs.zip
+          else
+            curl -fL --retry 3 --retry-delay 5 https://archive.ics.uci.edu/ml/machine-learning-databases/00280/HIGGS.csv.gz -o /tmp/HIGGS.csv.gz
+          fi
+          test -s /tmp/HIGGS.csv.gz
+          ls -lh /tmp/HIGGS.csv.gz
+      - name: Establish full 10.1M MLP-vs-CatBoost representation-learning regime
+        run: |
+          set -euo pipefail
+          mkdir -p research-results /tmp/higgs-cache
+          git rev-parse HEAD > research-results/SOURCE_COMMIT.txt
+          python -m pip freeze > research-results/environment.txt
+          python experiments/higgs_canonical_scaling.py             --csv-gz /tmp/HIGGS.csv.gz             --cache /tmp/higgs-cache             --scales 10100000             --families catboost mlp             --mlp-epochs 20             --seed 509             --out research-results/higgs-canonical-anchor.json             | tee research-results/higgs-canonical-anchor.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: higgs-canonical-anchor
+          path: research-results/
+          if-no-files-found: warn

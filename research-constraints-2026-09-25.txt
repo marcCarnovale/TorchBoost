@@ -1,0 +1,13 @@
+# Direct research dependencies reproducing GitHub Actions run 36145015457.
+# Python: 3.12.14. PyTorch is installed separately from the CPU wheel index as 2.14.0.
+numpy==2.5.3
+scipy==1.18.1
+scikit-learn==1.9.1
+pandas==3.0.6
+joblib==1.6.0
+pytest==9.1.1
+ruff==0.16.9
+catboost==1.2.8
+xgboost==3.4.1
+lightgbm==4.7.0
+matplotlib==3.11.2
