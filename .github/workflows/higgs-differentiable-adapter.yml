@@ -5,6 +5,7 @@ on:
     branches: [research/unified-progressive-2026-09-24]
     paths:
       - 'torchboost/adaptive/architecture_corners.py'
+      - 'torchboost/adaptive/residual_adapter.py'
       - 'experiments/higgs_differentiable_adapter.py'
       - 'tests/test_higgs_differentiable_adapter.py'
       - 'research/higgs_scale_source_control_protocol.md'
