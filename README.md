@@ -2,152 +2,122 @@
 
 **Function-preserving neural–tree architecture expansion for tabular learning.**
 
-TorchBoost is an experimental PyTorch research system for studying whether strong
-tabular neural and tree predictors can be embedded inside a shared trainable
-architecture and then expanded without destroying the inherited function.
+TorchBoost is an experimental PyTorch research system for expanding a trained tabular neural network into a richer tree-structured model **without changing the inherited function at the moment of expansion**.
 
-## Main research result
+The current research result is a neural→tree residual adapter, not a claim of tabular state of the art.
 
-The strongest current evidence is a HIGGS neural→tree hybrid result, not the
-historical progressive-forest machinery.
+## Result at a glance
 
-A canonical five-layer ReLU MLP is represented exactly as depth-zero affine
-tree layers. Each hidden layer can then grow a zero-at-birth residual-tree
-refinement, so structural capacity is introduced **function-preservingly**.
-The inherited MLP backbone and head stay frozen while only the newborn routing
-and residual packets are trained.
+A pretrained ReLU MLP is embedded exactly as depth-zero affine tree layers. Each hidden layer can then grow a zero-at-birth residual-tree refinement while the inherited MLP backbone and head remain frozen.
 
-On the 500k-row HIGGS development protocol, held-out learning of five positive
-layerwise residual scales beat an otherwise identical fixed-scale adapter:
+| Evidence | Result |
+|---|---|
+| HIGGS development comparison | held-out architecture scales beat a matched fixed-scale adapter |
+| Predeclared HIGGS replication | favorable learned-vs-fixed direction in **3/3** independent seeds |
+| Matched scale-source control | held-out-scale beats TRAIN-scale on the corrected canonical control |
+| External transfer | residual adapter beats its inherited MLP on **7/7** public OpenML datasets in both NLL and AUC |
+| Strong tree baselines | CatBoost, XGBoost, and LightGBM still win on the external benchmark |
+| Fresh HIGGS shadow audit | **unopened** |
+
+### HIGGS adapter evidence
+
+Initial 500k-row development result:
 
 - fixed-scale ranking NLL/AUC: `0.57106812 / 0.76946808`
 - held-out-scale ranking NLL/AUC: `0.57049915 / 0.76991939`
 - delta: **−0.00056897 NLL / +0.00045131 AUC**
 
-The result then reproduced directionally in all three predeclared independent
-seeds. The mean replicated held-out-minus-fixed effect was approximately
-**−0.000230371 NLL / +0.000293058 AUC**. Exact SHAs, run IDs, jobs, artifacts,
-and per-seed values are recorded in `research/RESULTS.md`.
+The direction reproduced in all three predeclared independent seeds; mean learned-minus-fixed ranking effect was approximately **−0.000230371 NLL / +0.000293058 AUC**.
 
-A corrected matched causal control is predeclared in
-`research/higgs_scale_source_control_protocol.md`: the same five scales are
-trained either from TRAIN or from a held-out ARCHITECTURE-SELECTION half with
-matched update cadence, while a disjoint CHECKPOINT-SELECTION half chooses the
-retained checkpoint. This tests whether the gain is specifically associated
-with held-out architecture allocation rather than merely adding five trainable
-supervised parameters.
+The corrected matched scale-source control then compared the *same five scale parameters* when optimized from TRAIN versus a disjoint ARCHITECTURE-SELECTION pool, with matched update cadence and a separate CHECKPOINT-SELECTION pool. On that canonical control:
 
-The fresh HIGGS shadow audit at rows `[9,600,000, 10,100,000)` remains
-**unopened**. External transfer is evaluated separately on seven public OpenML
-datasets with five seeds, TRAIN-only numeric/categorical preprocessing, and
-dataset-clustered inference.
+- TRAIN-scale ranking: `0.571734560 NLL / 0.768675883 AUC`
+- held-out-scale ranking: `0.570802453 NLL / 0.769270809 AUC`
+- heldout − TRAIN: **−0.000932107 NLL / +0.000594926 AUC**
 
-### What is and is not claimed
+This is one corrected causal-control seed, not yet a replicated causal claim.
 
-Current evidence supports a narrow statement: a pretrained tabular MLP can be
-expanded with zero-at-birth residual-tree structure, and held-out optimization
-of the residual architecture weights reproducibly improves the hybrid on the
-HIGGS development protocol.
+### External transfer
 
-It does **not** yet establish broad tabular state of the art, superiority over
-properly tuned CatBoost/XGBoost/LightGBM, or successful optimization across the
-entire architecture space described elsewhere in this repository.
+The frozen transfer study evaluated **7 public OpenML binary datasets × 5 predeclared seeds = 35/35 completed cells**, using TRAIN-only preprocessing and dataset-clustered inference.
+
+Against the inherited MLP, the learned residual adapter improved **7/7 datasets** in both metrics:
+
+- mean dataset ΔNLL: **−0.004773**, 95% dataset-bootstrap CI `[-0.007932, -0.002308]`
+- mean dataset ΔAUC: **+0.003448**, 95% CI `[+0.001291, +0.006955]`
+
+Held-out learned scales versus fixed residual scales were much weaker cross-dataset:
+
+- mean ΔNLL: `−0.000391`, 5/7 dataset wins, CI crossing zero
+- mean ΔAUC: `+0.000042`, 4/7 wins, CI crossing zero
+
+The current architecture **does not beat** CatBoost, XGBoost, or LightGBM on this external benchmark. That negative result is part of the evidence, not hidden.
+
+Exact SHAs, Actions run/job/artifact IDs, per-seed values, invalidated controls, and claim boundaries are maintained in [`research/RESULTS.md`](research/RESULTS.md).
+
+## What is claimed
+
+Current evidence supports the following narrow statement:
+
+> A trained tabular MLP can be embedded exactly in a tree-expandable architecture, zero-at-birth residual-tree capacity can be added without perturbing the inherited predictor, and training that residual capacity improves the inherited MLP across the seven-dataset external transfer benchmark. On HIGGS, held-out learning of residual architecture weights also reproducibly beats a matched fixed-scale adapter, and a corrected canonical control favors held-out over TRAIN-sourced scale updates.
+
+It does **not** establish broad tabular state of the art, superiority over tuned tree ensembles, or a final unseen HIGGS result.
+
+## Architecture
+
+For a dense hidden layer
+
+```text
+h(x) = W x + b
+```
+
+TorchBoost represents the layer exactly as a depth-zero affine tree packet. Structural growth adds a residual refinement
+
+```text
+h_new(x) = h(x) + alpha * r(x),     r(x) = 0 at birth.
+```
+
+Therefore `h_new == h` at the growth event, regardless of the positive architecture scale `alpha`. Subsequent training updates only newborn routing/residual packets; the inherited predictor can remain frozen.
+
+The HIGGS adapter uses five positive layerwise residual scales. The corrected scale-source control separates:
+
+- **TRAIN** — residual packet/routing optimization;
+- **ARCHITECTURE-SELECTION** — held-out scale optimization;
+- **CHECKPOINT-SELECTION** — retained-checkpoint choice;
+- **RANKING** — evaluation only;
+- **SHADOW AUDIT** — sealed final evaluation only.
+
+## Reproducibility and audit discipline
+
+The research program treats a configured mechanism, an activated mechanism, and a beneficial mechanism as different claims.
+
+- Every headline quantitative result is tied to a source SHA, Actions run, job, and artifact.
+- Failed and invalid controls remain documented.
+- The fresh HIGGS shadow audit at rows `[9,600,000, 10,100,000)` is locked in `experiments/higgs_shadow_protocol.json` and remains **unopened**.
+- The previously opened legacy final-500k audit is retained only for frozen historical comparisons.
+- No shadow metric is used for architecture, seed, checkpoint, or hyperparameter selection.
+
+See:
+
+- [`research/RESULTS.md`](research/RESULTS.md) — auditable evidence ledger
+- [`research/NEURAL_TREE_ADAPTER_NOTE.md`](research/NEURAL_TREE_ADAPTER_NOTE.md) — paper-shaped architecture note and claim boundary
+- [`research/higgs_scale_source_control_protocol.md`](research/higgs_scale_source_control_protocol.md) — corrected matched causal control
+- [`research/external_adapter_benchmark_protocol.md`](research/external_adapter_benchmark_protocol.md) — frozen 7-dataset × 5-seed transfer study
+- [`experiments/higgs_shadow_protocol.json`](experiments/higgs_shadow_protocol.json) — sealed HIGGS shadow protocol
 
 ## Broader experimental system
 
-### Single power tree — secondary model-tree research path
+The repository also contains secondary research paths for:
 
-A node can contribute an affine residual
+- affine-residual “power” trees;
+- grouped-oblique routing;
+- OOF-selected forests;
+- progressive/boosted power trees;
+- dynamic growth/pruning;
+- evidence-earned plastic anchors;
+- capacitor/RLC-inspired adaptive controllers and topology-normalized physical state.
 
-\[
-r_v(x)=b_v+x^\top\beta_v,
-\]
-
-so a path accumulates coarse-to-fine predictive corrections rather than only constant leaf values.
-Hard Newton/model-tree proposals can be released into differentiable routing and trained with
-hierarchical regularization. This substantially increases the capacity of one tree before ensembling.
-
-### OOF-selected forest
-
-`OOFForest` trains candidate members on inner bags, scores them using out-of-fold predictions,
-retains only the strongest members, refits survivors on independent outer bags, and supports
-uniform, inverse-loss, or softmax OOF-performance weighting. Member selection is therefore based on
-held-out behavior rather than unconditional averaging.
-
-### Progressive / boosted power trees
-
-`UnifiedProgressiveClassifier` and `UnifiedProgressiveRegressor` add corrective trees sequentially.
-Older trees can slow with age instead of being permanently frozen. The native trainer can combine
-this with plastic anchors, dynamic structure, online local control, and capacitor/RLC thermal control.
-
-## Axis-aligned by default; oblique routing is explicit
-
-For ordinary tabular data, arbitrary rotations across unrelated columns are usually a poor prior.
-The default proposal is axis-aligned. Experimental `proposal_mode="grouped_oblique"` restricts an
-oblique gate to one declared semantic feature group; singleton groups recover ordinary axis splits,
-and groups may overlap. This is intended for domain-informed or strongly evidenced feature groups,
-not indiscriminate rotation of all columns.
-
-
-## Data-adaptive experimental design
-
-Power-tree structural learning defaults to data-adaptive complexity control. On larger fitting sets,
-candidate splits can be screened cheaply, ranked by K-fold out-of-fold improvement, and then refit on
-all data. Final affine packets can be averaged across large parameter-estimation bags. Cross-fitting
-uses a capped design sample on very large nodes so structural validation does not make tree
-construction quadratic in data size.
-
-On smaller data, the same policy increases required rows per affine parameter, strengthens local
-ridge pressure, and reduces feasible depth. A single permanent holdout is not the default: it wastes
-scarce data and was empirically too conservative in development tests.
-
-This is separate from final model selection: controller, selection, ranking, and audit data remain
-distinct where the experiment protocol provides them.
-
-## Adaptive mechanisms
-
-The native engine implements:
-
-- evidence-earned anchors and elastic pullback;
-- yielding, permanent reference motion, work hardening, damage/breakage, recovery, and optional locks;
-- capacitor and RLC corrective-energy controllers with independent cooling;
-- thermal softening and thaw/reopening;
-- local momentum variants, including circuit-state coupling;
-- real growth/pruning with optimizer/controller/plastic-state migration;
-- split-specific observations and an online local policy with delayed outcomes;
-- hierarchical, feature, structural, routing, and output regularization.
-
-Physics is **not** assumed to improve an underpowered predictor. Current development first makes the
-base tree/forest statistically strong, then evaluates control mechanisms on long nonstationary
-curricula where retention, selective reopening, and recovery can actually matter.
-
-## Physics defaults and topology scaling
-
-The ordinary routing temperature is 1.0. Physics-enabled experiments now use a neutral resting
-temperature of 1.0 so enabling the controller does not silently sharpen every gate.
-
-`PhysicsConfig(topology_normalization=True)` derives per-node resistance, inductance, heat capacity,
-and cooling from whole-controller time constants. When topology changes, stored thermal and
-inductive energy are preserved while component values are recalibrated. This prevents the same
-controller configuration from changing meaning merely because a tree grows.
-
-## Evidence and protocols
-
-- `research/RESULTS.md` — auditable SHAs, Actions runs, jobs, artifacts, and
-  valid/invalid evidence status.
-- `research/NEURAL_TREE_ADAPTER_NOTE.md` — paper-shaped statement of the
-  architecture, current HIGGS evidence, controls, and claim boundary.
-- `research/higgs_scale_source_control_protocol.md` — corrected causal
-  heldout-scale vs TRAIN-scale control.
-- `research/external_adapter_benchmark_protocol.md` — frozen seven-dataset
-  transfer study with TRAIN-only preprocessing and dataset-clustered inference.
-- `experiments/higgs_shadow_protocol.json` — unopened final HIGGS shadow lock.
-
-Secondary development evidence exists for affine-residual power trees,
-grouped-oblique routing, recurring-domain memory/control, and
-topology-normalized physical controllers. Those experiments remain exploratory
-and are not promoted to the same evidentiary status as the replicated HIGGS
-adapter result.
+These mechanisms are exploratory and are **not** promoted to the same evidentiary status as the neural→tree residual-adapter results.
 
 ## Install
 
@@ -164,14 +134,15 @@ pytest -q
 from torchboost.adaptive import UnifiedConfig, UnifiedProgressiveClassifier
 
 cfg = UnifiedConfig(
-    n_trees=1,                 # single power tree
+    n_trees=1,
     linear_values=True,
     proposal_mode="hist_newton",
 )
 
 model = UnifiedProgressiveClassifier(cfg)
 model.fit(
-    X_train, y_train,
+    X_train,
+    y_train,
     control_set=(X_control, y_control),
     eval_set=(X_selection, y_selection),
 )
@@ -180,12 +151,6 @@ p = model.predict_proba(X_test)
 
 Final test data must never be supplied as controller or selection data.
 
-## Research discipline
+## Status
 
-A configured mechanism, an activated mechanism, and a beneficial mechanism are three different
-claims. Experiments record intervention timing, charge/temperature, anchor admission, structural
-events, and selected checkpoints so late or inactive mechanisms are not credited for earlier model
-quality. Negative controls are retained.
-
-The draft research branch remains under active development. See `docs/research-program.md` and the
-current experiment scripts for protocols and known limitations.
+This is an active research repository. The current strongest evidence is the function-preserving residual-adapter program above; historical progressive-forest experiments remain in the repository for provenance and secondary research.
