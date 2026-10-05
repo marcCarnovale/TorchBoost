@@ -1,5 +1,9 @@
 # TorchBoost
 
+[![CI](https://github.com/marcCarnovale/TorchBoost/actions/workflows/ci.yml/badge.svg)](https://github.com/marcCarnovale/TorchBoost/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.10–3.12](https://img.shields.io/badge/python-3.10%E2%80%933.12-blue.svg)](pyproject.toml)
+
 **Function-preserving neural–tree architecture expansion for tabular learning.**
 
 TorchBoost is an experimental PyTorch research system for expanding a trained tabular neural network into a richer tree-structured model **without changing the inherited function at the moment of expansion**.
@@ -150,6 +154,10 @@ p = model.predict_proba(X_test)
 ```
 
 Final test data must never be supplied as controller or selection data.
+
+## Citation and contributing
+
+Software citation metadata are provided in [`CITATION.cff`](CITATION.cff). Research contributions should follow [`CONTRIBUTING.md`](CONTRIBUTING.md) and preserve the explicit evidence/audit separation described above.
 
 ## Status
 
