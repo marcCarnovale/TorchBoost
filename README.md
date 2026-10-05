@@ -132,28 +132,23 @@ python -m pip install -e '.[dev,benchmark]'
 pytest -q
 ```
 
-## Minimal unified example
+## Minimal neural→tree example
+
+The headline mechanism is exposed directly:
 
 ```python
-from torchboost.adaptive import UnifiedConfig, UnifiedProgressiveClassifier
+from torchboost.adaptive.architecture_corners import CompositionalTreeNetwork
+from torchboost.adaptive.residual_adapter import grow_frozen_backbone_adapter
 
-cfg = UnifiedConfig(
-    n_trees=1,
-    linear_values=True,
-    proposal_mode="hist_newton",
-)
-
-model = UnifiedProgressiveClassifier(cfg)
-model.fit(
-    X_train,
-    y_train,
-    control_set=(X_control, y_control),
-    eval_set=(X_selection, y_selection),
-)
-p = model.predict_proba(X_test)
+anchor = CompositionalTreeNetwork.from_mlp(pretrained_relu_mlp)
+adapter = grow_frozen_backbone_adapter(anchor, learn_scales=True)
 ```
 
-Final test data must never be supplied as controller or selection data.
+At the growth event, the newborn residual packets are exactly zero, so the adapter preserves the inherited predictor. TRAIN should update only newborn residual routing/packets; held-out architecture data may separately update the layerwise residual scales.
+
+See [`examples/residual_adapter.py`](examples/residual_adapter.py) for a complete synthetic example that verifies the birth function numerically and performs matched residual/architecture updates.
+
+Final test or audit data must never be supplied for training, architecture adaptation, or checkpoint selection.
 
 ## Citation and contributing
 
