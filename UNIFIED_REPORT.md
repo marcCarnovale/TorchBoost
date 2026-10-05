@@ -1,31 +1,77 @@
-# Unified progressive TorchBoost: execution record
+# Unified progressive TorchBoost: historical execution record
 
-**Status: development build; requested full study not verified complete.**
+> **Historical / superseded research path.**
+>
+> This document records an earlier progressive-forest study and is retained for
+> provenance. It is **not** the current headline TorchBoost result. The active
+> research program is the function-preserving neural→tree residual adapter
+> documented in [README.md](README.md), [research/RESULTS.md](research/RESULTS.md),
+> and [research/NEURAL_TREE_ADAPTER_NOTE.md](research/NEURAL_TREE_ADAPTER_NOTE.md).
+> Do not use this report to infer the current claim boundary.
 
-## Verification
+## Original study status
 
-Test return code: 0; passed: 254; failed: None. Full output is in `results/current/final_tests.log`.
+**Status at the time of execution: development build; requested full study not verified complete.**
+
+### Verification
+
+Test return code: 0; passed: 254; failed: None. Full output was recorded in
+`results/current/final_tests.log` in the original development workspace.
 
 | Block | Registered | Successful | Failed | Missing |
 |---|---:|---:|---:|---:|
 | tuning | 36 | 35 | 0 | 1 |
 | components | 224 | 224 | 0 | 0 |
 
-Reference results: {'success': 96}.
-Unfinished workspace processes were stopped before packaging. Launching a job is never counted as completing it.
+Reference results: `{'success': 96}`.
+
+Unfinished workspace processes were stopped before packaging. Launching a job
+was never counted as completing it.
 
 ## Implementation scope
 
-The new module is `torchboost.adaptive.unified_progressive`. It reuses native observations, physical control, plasticity, structural transactions and optimizer-state management in a progressive score-sum model. Its proposal builder uses full binary/multiclass/regression curvature and explicit split constraints. Stage row pools and permanent feature masks replace the earlier ineffective controls. Custom penalties act on actual canonical leaf scores, residual node values, feature use, routing support and rate-scaled tree predictions. Existing packed progressive APIs are historical references, not silently recertified implementations.
+The study centered on `torchboost.adaptive.unified_progressive`. It reused
+native observations, physical control, plasticity, structural transactions and
+optimizer-state management in a progressive score-sum model. Its proposal
+builder used binary/multiclass/regression curvature and explicit split
+constraints. Stage row pools and permanent feature masks replaced earlier
+ineffective controls. Custom penalties acted on canonical leaf scores, residual
+node values, feature use, routing support and rate-scaled tree predictions.
 
-## Reproduction
+These components remain available as secondary experimental machinery, but the
+current evidence-bearing path is the residual neural→tree adapter.
 
-Install using `python -m pip install -e ".[experiment]"`; run `python -m pytest -q`; inspect `examples/unified_progressive.py`. Experiment entry points are `experiments/unified_study.py`, `experiments/unified_baselines.py`, and `experiments/finish_unified.py`. Existing failed records must be inspected, not silently discarded. Checkpoints use Python-backed serialization and must be trusted.
+## Original reproduction notes
+
+The original study used:
+
+```bash
+python -m pip install -e ".[experiment]"
+python -m pytest -q
+```
+
+Historical experiment entry points include
+`experiments/unified_study.py`, `experiments/unified_baselines.py`, and
+`experiments/finish_unified.py`. Existing failed records should be inspected,
+not silently discarded. Checkpoints use Python-backed serialization and must be
+trusted before loading.
 
 ## Evidence limits
 
-The two context problems are synthetic and diamonds is a reused public dataset. Search and compute budgets differ from reference systems. There is no independent frontier-performance claim. Soft monotonicity is not a global constraint proof. Online rewards are observational, not isolated causal estimates. Additional historical exploratory circuits, accelerator kernels, PID/Kalman alternatives and structural RL are not declared complete.
+The original context problems were synthetic and diamonds was a reused public
+dataset. Search and compute budgets differed from reference systems. There was
+no independent frontier-performance claim. Soft monotonicity was not a global
+constraint proof. Online rewards were observational, not isolated causal
+estimates.
 
-The integer-clock `before_selected` convenience count can include an intervention tied in clock value but later in event order than a selected proposal. Do not use that count alone for attribution; inspect phase/event ordering. This limitation is retained explicitly.
+The integer-clock `before_selected` convenience count could include an
+intervention tied in clock value but later in event order than a selected
+proposal. It should not be used alone for attribution; phase/event ordering
+must be inspected.
 
-No remote GitHub changes were made.
+## Current status
+
+The active repository has since advanced beyond this study. For current
+quantitative claims, exact SHAs, Actions run/job/artifact IDs, negative results,
+invalidated controls, and the sealed HIGGS shadow-audit policy, use
+[research/RESULTS.md](research/RESULTS.md).
