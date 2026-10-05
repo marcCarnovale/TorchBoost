@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "If you use TorchBoost or the function-preserving neural-tree research code, please cite this software."
+title: "TorchBoost: Function-Preserving Neural-Tree Architecture Expansion for Tabular Learning"
+type: software
+authors:
+  - family-names: Carnovale
+    given-names: Marc
+repository-code: "https://github.com/marcCarnovale/TorchBoost"
+url: "https://github.com/marcCarnovale/TorchBoost"
+license: MIT
+version: 0.7.0.dev0
+date-released: 2026-10-04
+keywords:
+  - PyTorch
+  - tabular learning
+  - neural trees
+  - differentiable trees
+  - decision trees
+  - architecture search
